@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import random
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
 from supabase import create_client
@@ -13,13 +14,14 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-print("--- Hunter v4 (Phone + Email) ---")
+print("--- System Starting: Hunter V5 (Lite Mode) ---")
+
 try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     llm = ChatGroq(model="llama3-70b-8192", temperature=0.3, api_key=GROQ_API_KEY)
-    print("✅ System Ready!")
+    print("✅ System Connected!")
 except Exception as e:
-    print(f"❌ Error: {e}")
+    print(f"❌ Connection Error: {e}")
     supabase = None
     llm = None
 
@@ -33,89 +35,83 @@ class ChatRequest(BaseModel):
     phone_number: str
     message: str
 
-# --- الصياد المزدوج (موبايل + إيميل) ---
-def run_hunter_process(keyword: str, city: str):
-    print(f"🕵️‍♂️ [HUNTER] Targeting: {keyword} in {city}")
-    
-    if not supabase: return
-
-    # بنبحث في كل حتة
-    queries = [
-        f'site:facebook.com "{keyword}" "{city}" "010"',
-        f'site:instagram.com "{keyword}" "{city}" "010"',
-        f'site:linkedin.com "{keyword}" "{city}" "@gmail.com"', # لينكد إن مليان إيميلات
-        f'"{keyword}" "{city}" "@gmail.com" OR "@yahoo.com"'
-    ]
-    
-    total_phones = 0
-    total_emails = 0
-    
-    for q in queries:
-        try:
-            results = DDGS().text(q, max_results=25)
-            
-            for res in list(results):
-                content = str(res.get('body', '')) + " " + str(res.get('title', ''))
-                
-                # 1. صيد الأرقام
-                phones = re.findall(r'(01[0125][0-9 \-]{8,15})', content)
-                for raw_phone in phones:
-                    phone = raw_phone.replace(" ", "").replace("-", "")
-                    if len(phone) == 11:
-                        save_lead(phone, None, keyword, res.get('href'))
-                        total_phones += 1
-
-                # 2. صيد الإيميلات (لو ملقيناش رقم، أو حتى لو لقينا)
-                # المعادلة دي بتجيب أي إيميل ينتهي بـ .com أو .net
-                emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', content)
-                for email in emails:
-                    # بنسجل الإيميل، ولو مفيش رقم بنستخدم الإيميل كمعرف مؤقت
-                    save_lead(None, email, keyword, res.get('href'))
-                    total_emails += 1
-                    
-        except Exception as e:
-            print(f"⚠️ Search Error: {e}")
-
-    print(f"🏁 Done. Phones: {total_phones} | Emails: {total_emails}")
-
-def save_lead(phone, email, keyword, source_link):
-    data = {
-        "source": f"Hunter: {keyword}",
-        "status": "NEW",
-        "notes": f"Source: {source_link}"
-    }
-    
-    # لو معانا رقم، هو ده الأساس
+def save_lead(phone, email, keyword, source_link, platform):
+    data = {"source": f"{platform}: {keyword}", "status": "NEW", "notes": f"Link: {source_link}"}
     if phone:
         data["phone_number"] = phone
-        if email: data["email"] = email # لو لقينا الاتنين، خير وبركة
+        if email: data["email"] = email
         try:
             supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-            print(f"   ✅ Saved Phone: {phone}")
-        except: pass
-
-    # لو معانا إيميل بس (ومفيش رقم)، هنسجله برضه
+            print(f"   ✅ SAVED: {phone}")
+            return True
+        except: return False
     elif email:
-        # عشان الجدول بيحتاج phone_number وممنوع التكرار
-        # هنحط الإيميل في خانة الرقم مؤقتاً لحد ما نكلمه
-        data["phone_number"] = f"email_{email}" 
+        data["phone_number"] = f"email_{email}"
         data["email"] = email
-        data["status"] = "EMAIL_ONLY" # عشان نعرف إن ده محتاج يتبعتله إيميل
+        data["status"] = "EMAIL_ONLY"
         try:
             supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-            print(f"   📧 Saved Email: {email}")
-        except: pass
+            print(f"   📧 SAVED EMAIL: {email}")
+            return True
+        except: return False
+    return False
+
+def run_hunter_process(keyword: str, city: str):
+    print(f"🕵️‍♂️ [HUNTER LITE] Searching for: {keyword}")
+    if not supabase: return
+
+    queries = [
+        f'site:facebook.com "{keyword}" "{city}" "010"',
+        f'site:olx.com.eg "{keyword}" "010"',
+        f'"{keyword}" "{city}" "010" OR "011"'
+    ]
+    
+    count = 0
+    
+    for q in queries:
+        print(f"🔎 Trying: {q}")
+        try:
+            # التغيير هنا: backend='lite' (أسرع ومش بيتبلك)
+            results = DDGS().text(q, max_results=25, backend='lite')
+            
+            if not results:
+                print("   ⚠️ No results from DDG Lite.")
+                continue
+
+            for res in list(results):
+                content = str(res.get('body', '')) + " " + str(res.get('title', ''))
+                platform = "Web"
+                if "facebook" in res.get('href', ''): platform = "Facebook"
+                
+                # استخراج أرقام
+                phones = re.findall(r'(01[0125][0-9 \-]{8,15})', content)
+                for raw in phones:
+                    clean = raw.replace(" ", "").replace("-", "")
+                    if len(clean) == 11:
+                        if save_lead(clean, None, keyword, res.get('href'), platform): count += 1
+                        
+        except Exception as e:
+            print(f"   ⚠️ Search Error: {e}")
+
+    # --- كود الاختبار (عشان نتأكد إن الداتابيس شغالة) ---
+    if count == 0:
+        print("⚠️ لم نجد نتائج حقيقية، جاري إضافة عميل تجريبي للتأكد من النظام...")
+        test_phone = f"010{random.randint(10000000, 99999999)}"
+        save_lead(test_phone, "test@example.com", "TEST_RUN", "System Check", "TEST")
+        print(f"🧪 تمت إضافة عميل تجريبي: {test_phone}")
+    
+    print(f"🏁 Finished. Total: {count}")
 
 # --- Endpoints ---
 @app.get("/")
-def home(): return {"status": "Hunter v4 Online 🧠"}
+def home(): return {"status": "Hunter V5 Lite Online"}
 
 @app.post("/start_hunt")
 async def start_hunt(req: HuntRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_hunter_process, req.keyword, req.city)
     return {"status": "Deployed"}
 
-# ... (باقي كود analyze_intent و chat زي ما هو بالضبط)
+# ... (باقي كود analyze_intent و chat زي ما هو - متتغيرش)
 @app.post("/analyze_intent")
 async def analyze_intent(req: ChatRequest):
     if not supabase: return {"action": "STOP", "reply": "DB Error"}
