@@ -9,20 +9,15 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-# جلب المفاتيح
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 print("--- Start Up Logs ---")
-if not SUPABASE_URL: print("❌ Supabase URL missing")
-if not SUPABASE_KEY: print("❌ Supabase KEY missing")
-if not GROQ_API_KEY: print("❌ Groq KEY missing")
-
 try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     llm = ChatGroq(model="llama3-70b-8192", temperature=0.3, api_key=GROQ_API_KEY)
-    print("✅ Database & AI Connected Successfully!")
+    print("✅ System Connected!")
 except Exception as e:
     print(f"❌ Connection Error: {e}")
     supabase = None
@@ -38,64 +33,72 @@ class ChatRequest(BaseModel):
     phone_number: str
     message: str
 
-# --- وظيفة الصياد المحدثة (DuckDuckGo) ---
+# --- الصياد المطور (شبكة واسعة) ---
 def run_hunter_process(keyword: str, city: str):
-    print(f"🕵️‍♂️ [HUNTER STARTED] Searching for: {keyword} in {city}")
+    print(f"🕵️‍♂️ [HUNTER] Searching for: {keyword} in {city}")
     
     if not supabase:
-        print("❌ Hunter stopped: Database not connected.")
+        print("❌ DB Not connected")
         return
 
-    # بحث واسع يشمل منصات التواصل
-    query = f'{keyword} {city} "010" OR "011" OR "012" OR "015" (site:facebook.com OR site:instagram.com OR site:linkedin.com)'
+    # استراتيجية البحث: بنستخدم backend='html' عشان نجيب نتايج أكتر
+    query = f'{keyword} {city} "010" OR "011" OR "012" OR "015"'
     
     try:
-        # استخدام DuckDuckGo السريع
-        results = DDGS().text(query, max_results=20)
+        # بنجيب 30 نتيجة بدل 20
+        results = DDGS().text(query, max_results=30, backend='html') 
         count = 0
         
         if not results:
-            print("⚠️ No results found.")
+            print("⚠️ الصياد رجع وايده فاضية (مفيش نتايج من جوجل). جرب كلمات تانية.")
             return
 
+        print(f"🔎 وجدنا {len(results)} نتيجة بحث.. جاري فحص الأرقام...")
+
         for res in results:
-            # دمج العنوان والوصف للبحث عن الرقم
+            # دمج العنوان والوصف
             text_blob = str(res.get('body', '')) + " " + str(res.get('title', ''))
             
-            # استخراج أرقام الموبايل المصرية
-            phones = re.findall(r'(01[0125][0-9]{8})', text_blob)
+            # شبكة صيد ذكية (بتقفش الأرقام حتى لو فيها مسافات أو شرط)
+            # بياخد أي رقم يبدأ بـ 01 وبعده 9 أرقام (سواء لازقين أو بينهم مسافة)
+            raw_phones = re.findall(r'(01[0125][0-9 \-]{8,15})', text_blob)
             
-            for phone in phones:
-                # حفظ الرقم في الداتابيس
-                try:
-                    data = {
-                        "phone_number": phone,
-                        "source": f"Hunter: {keyword}",
-                        "status": "NEW",
-                        "notes": f"Source: {res.get('href', 'Google')}"
-                    }
-                    supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-                    print(f"✅ Saved Lead: {phone}")
-                    count += 1
-                except Exception as db_err:
-                    print(f"⚠️ DB Error for {phone}: {db_err}")
+            for raw_phone in raw_phones:
+                # تنظيف الرقم (شيل المسافات والشرط عشان يتسجل صح)
+                clean_phone = raw_phone.replace(" ", "").replace("-", "")
+                
+                # التأكد إن طول الرقم 11 (رقم مصري صحيح)
+                if len(clean_phone) == 11:
+                    try:
+                        data = {
+                            "phone_number": clean_phone,
+                            "source": f"Hunter: {keyword}",
+                            "status": "NEW",
+                            "notes": f"Source: {res.get('href', 'Search')}"
+                        }
+                        # Upsert عشان لو الرقم موجود قبل كده ميعملش خطأ
+                        supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
+                        print(f"✅ تم صيد العميل: {clean_phone}")
+                        count += 1
+                    except Exception as db_err:
+                        print(f"⚠️ خطأ داتابيس: {db_err}")
+                        pass
                     
-        print(f"🏁 Hunter Finished. Total saved: {count}")
+        print(f"🏁 انتهت المهمة. الحصيلة النهائية: {count} عميل.")
         
     except Exception as e:
         print(f"❌ Hunter Crash: {e}")
 
 # --- Endpoints ---
 @app.get("/")
-def home(): return {"status": "Brain Online 🧠", "hunter": "DuckDuckGo"}
+def home(): return {"status": "Brain Online v2 🧠"}
 
 @app.post("/start_hunt")
 async def start_hunt(req: HuntRequest, background_tasks: BackgroundTasks):
-    print(f"📩 Received Hunt Order: {req.keyword}")
+    print(f"📩 Order Received: {req.keyword}")
     background_tasks.add_task(run_hunter_process, req.keyword, req.city)
     return {"status": "Hunter Deployed"}
 
-# ... (باقي كود analyze_intent و chat زي ما هو، لو محتاجه قولي أنسخهولك تاني)
 @app.post("/analyze_intent")
 async def analyze_intent(req: ChatRequest):
     if not supabase: return {"action": "STOP", "reply": "DB Error"}
@@ -104,7 +107,10 @@ async def analyze_intent(req: ChatRequest):
     
     prompt = f"""حلل: "{req.message}". المسموح: {allowed}. JSON: {{"loc": "INSIDE/OUTSIDE", "intent": "INTERESTED/NOT"}}"""
     try:
-        res = json.loads(StrOutputParser().invoke(ChatPromptTemplate.from_template(prompt).invoke({}, llm=llm)).replace("```json","").replace("```","").strip())
+        chain = ChatPromptTemplate.from_template(prompt) | llm | StrOutputParser()
+        res_txt = chain.invoke({}).replace("```json", "").replace("```", "").strip()
+        if "{" in res_txt: res_txt = res_txt[res_txt.find("{"):res_txt.rfind("}")+1]
+        res = json.loads(res_txt)
     except: res = {"loc": "UNKNOWN", "intent": "INTERESTED"}
 
     if res.get('loc') == 'OUTSIDE': return {"action": "STOP", "reply": "خارج النطاق"}
