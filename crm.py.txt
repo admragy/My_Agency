@@ -1,0 +1,78 @@
+import streamlit as st
+import pandas as pd
+import requests
+from supabase import create_client
+
+# إعداد الصفحة
+st.set_page_config(page_title="Genius Agency CRM", layout="wide", page_icon="🦅")
+
+# --- الاتصال بالسحابة ---
+try:
+    # سيتم جلب المفاتيح من إعدادات Streamlit Cloud
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+    # رابط المخ (سنقوم بتحديثه بعد الرفع على Render)
+    API_URL = st.secrets.get("API_URL", "http://localhost:8000") 
+    
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+except:
+    st.error("⚠️ لم يتم العثور على المفاتيح. تأكد من إعداد Secrets في Streamlit Cloud.")
+    st.stop()
+
+st.title("🦅 لوحة التحكم - وكالة الذكاء الاصطناعي")
+
+# القائمة الجانبية
+menu = st.sidebar.radio("القائمة", ["🕵️‍♂️ الصياد (Hunter)", "🚀 الحملات", "⚙️ الإعدادات", "📊 الداتا"])
+
+if menu == "🕵️‍♂️ الصياد (Hunter)":
+    st.header("🎣 اصطياد عملاء جدد")
+    col1, col2 = st.columns(2)
+    with col1:
+        keyword = st.text_input("الكلمة المفتاحية (مثال: ملابس, عقارات)")
+    with col2:
+        city = st.text_input("المدينة (مثال: القاهرة)")
+        
+    if st.button("🚀 اطلق الصياد"):
+        with st.spinner("جاري الاتصال بالمخ..."):
+            try:
+                res = requests.post(f"{API_URL}/start_hunt", json={"keyword": keyword, "city": city})
+                if res.status_code == 200:
+                    st.success(f"تم الإطلاق! الصياد يبحث الآن عن '{keyword}'.")
+                else:
+                    st.error("المخ لا يستجيب.")
+            except:
+                st.error("فشل الاتصال برابط API.")
+
+elif menu == "🚀 الحملات":
+    st.header("📦 إعداد المنتج")
+    with st.form("camp"):
+        name = st.text_input("اسم المنتج")
+        desc = st.text_area("وصف المنتج (السعر والمواصفات)")
+        if st.form_submit_button("تنشيط الحملة"):
+            supabase.table("campaigns").update({"is_active": False}).neq("id", "0").execute()
+            supabase.table("campaigns").insert({"campaign_name": name, "product_description": desc, "is_active": True}).execute()
+            st.success("تم الحفظ!")
+
+elif menu == "⚙️ الإعدادات":
+    st.header("📍 فلتر المناطق")
+    curr = supabase.table("project_settings").select("*").limit(1).execute().data
+    val = curr[0]['allowed_cities'] if curr else ""
+    
+    new_cities = st.text_input("المناطق المسموحة (افصل بفاصلة)", value=val)
+    if st.button("تحديث"):
+        if curr:
+            supabase.table("project_settings").update({"allowed_cities": new_cities}).eq("id", curr[0]['id']).execute()
+        else:
+            supabase.table("project_settings").insert({"allowed_cities": new_cities}).execute()
+        st.success("تم التحديث!")
+
+elif menu == "📊 الداتا":
+    st.header("📈 العملاء ونتائج الصيد")
+    if st.button("تحديث الجدول"):
+        st.rerun()
+        
+    leads = supabase.table("leads").select("*").order("created_at", desc=True).execute().data
+    if leads:
+        st.dataframe(pd.DataFrame(leads)[['phone_number', 'source', 'status', 'notes']], use_container_width=True)
+    else:
+        st.info("لا توجد بيانات.")
