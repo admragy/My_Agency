@@ -1,27 +1,28 @@
 import os
 import json
 import re
-import random
+import requests
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
 from supabase import create_client
-from duckduckgo_search import DDGS
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
+# جلب المفاتيح
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+SERPER_API_KEY = os.environ.get("SERPER_API_KEY") # المفتاح الجديد
 
-print("--- System Starting: Hunter V5 (Lite Mode) ---")
+print("--- Hunter V6 (Google Serper API) ---")
 
 try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     llm = ChatGroq(model="llama3-70b-8192", temperature=0.3, api_key=GROQ_API_KEY)
     print("✅ System Connected!")
 except Exception as e:
-    print(f"❌ Connection Error: {e}")
+    print(f"❌ Error: {e}")
     supabase = None
     llm = None
 
@@ -35,83 +36,81 @@ class ChatRequest(BaseModel):
     phone_number: str
     message: str
 
-def save_lead(phone, email, keyword, source_link, platform):
-    data = {"source": f"{platform}: {keyword}", "status": "NEW", "notes": f"Link: {source_link}"}
-    if phone:
-        data["phone_number"] = phone
-        if email: data["email"] = email
-        try:
-            supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-            print(f"   ✅ SAVED: {phone}")
-            return True
-        except: return False
-    elif email:
-        data["phone_number"] = f"email_{email}"
-        data["email"] = email
-        data["status"] = "EMAIL_ONLY"
-        try:
-            supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-            print(f"   📧 SAVED EMAIL: {email}")
-            return True
-        except: return False
-    return False
-
+# --- الصياد النووي (Serper Google Search) ---
 def run_hunter_process(keyword: str, city: str):
-    print(f"🕵️‍♂️ [HUNTER LITE] Searching for: {keyword}")
-    if not supabase: return
+    print(f"🕵️‍♂️ [SERPER HUNTER] Targeting: {keyword} in {city}")
+    
+    if not supabase or not SERPER_API_KEY:
+        print("❌ Missing Config (DB or Serper Key)")
+        return
 
+    # استراتيجيات البحث القوية
     queries = [
         f'site:facebook.com "{keyword}" "{city}" "010"',
+        f'site:instagram.com "{keyword}" "{city}" "010"',
         f'site:olx.com.eg "{keyword}" "010"',
-        f'"{keyword}" "{city}" "010" OR "011"'
+        f'"{keyword}" "{city}" "010" OR "011" OR "012"'
     ]
     
-    count = 0
-    
+    url = "https://google.serper.dev/search"
+    total_saved = 0
+
     for q in queries:
-        print(f"🔎 Trying: {q}")
+        print(f"🚀 Launching Query: {q}")
+        payload = json.dumps({"q": q, "num": 50}) # هات 50 نتيجة في المرة الواحدة
+        headers = {
+            'X-API-KEY': SERPER_API_KEY,
+            'Content-Type': 'application/json'
+        }
+
         try:
-            # التغيير هنا: backend='lite' (أسرع ومش بيتبلك)
-            results = DDGS().text(q, max_results=25, backend='lite')
+            response = requests.request("POST", url, headers=headers, data=payload)
+            results = response.json().get("organic", [])
             
             if not results:
-                print("   ⚠️ No results from DDG Lite.")
+                print("   ⚠️ No results from Google.")
                 continue
 
-            for res in list(results):
-                content = str(res.get('body', '')) + " " + str(res.get('title', ''))
-                platform = "Web"
-                if "facebook" in res.get('href', ''): platform = "Facebook"
+            print(f"   -> Google returned {len(results)} pages. Scanning...")
+
+            for res in results:
+                # دمج العنوان والوصف (Snippet)
+                content = str(res.get('title', '')) + " " + str(res.get('snippet', ''))
                 
-                # استخراج أرقام
+                # استخراج الأرقام
                 phones = re.findall(r'(01[0125][0-9 \-]{8,15})', content)
-                for raw in phones:
-                    clean = raw.replace(" ", "").replace("-", "")
-                    if len(clean) == 11:
-                        if save_lead(clean, None, keyword, res.get('href'), platform): count += 1
+                
+                for raw_phone in phones:
+                    phone = raw_phone.replace(" ", "").replace("-", "")
+                    
+                    if len(phone) == 11:
+                        try:
+                            data = {
+                                "phone_number": phone,
+                                "source": f"Google: {keyword}",
+                                "status": "NEW",
+                                "notes": f"Link: {res.get('link')}"
+                            }
+                            supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
+                            print(f"   ✅ CAUGHT: {phone}")
+                            total_saved += 1
+                        except: pass
                         
         except Exception as e:
-            print(f"   ⚠️ Search Error: {e}")
+            print(f"   ❌ API Error: {e}")
 
-    # --- كود الاختبار (عشان نتأكد إن الداتابيس شغالة) ---
-    if count == 0:
-        print("⚠️ لم نجد نتائج حقيقية، جاري إضافة عميل تجريبي للتأكد من النظام...")
-        test_phone = f"010{random.randint(10000000, 99999999)}"
-        save_lead(test_phone, "test@example.com", "TEST_RUN", "System Check", "TEST")
-        print(f"🧪 تمت إضافة عميل تجريبي: {test_phone}")
-    
-    print(f"🏁 Finished. Total: {count}")
+    print(f"🏁 Mission Complete. Total Fresh Leads: {total_saved}")
 
 # --- Endpoints ---
 @app.get("/")
-def home(): return {"status": "Hunter V5 Lite Online"}
+def home(): return {"status": "Hunter V6 (Nuclear) Online ☢️"}
 
 @app.post("/start_hunt")
 async def start_hunt(req: HuntRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_hunter_process, req.keyword, req.city)
     return {"status": "Deployed"}
 
-# ... (باقي كود analyze_intent و chat زي ما هو - متتغيرش)
+# ... (باقي كود analyze_intent و chat زي ما هو، سيبه تحت الكود ده)
 @app.post("/analyze_intent")
 async def analyze_intent(req: ChatRequest):
     if not supabase: return {"action": "STOP", "reply": "DB Error"}
