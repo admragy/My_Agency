@@ -13,13 +13,13 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-print("--- System Starting v3 (Wide Net) ---")
+print("--- Hunter v4 (Phone + Email) ---")
 try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     llm = ChatGroq(model="llama3-70b-8192", temperature=0.3, api_key=GROQ_API_KEY)
-    print("✅ All Systems Connected!")
+    print("✅ System Ready!")
 except Exception as e:
-    print(f"❌ Init Error: {e}")
+    print(f"❌ Error: {e}")
     supabase = None
     llm = None
 
@@ -33,82 +33,89 @@ class ChatRequest(BaseModel):
     phone_number: str
     message: str
 
-# --- صياد بوضع "الشبكة العملاقة" ---
+# --- الصياد المزدوج (موبايل + إيميل) ---
 def run_hunter_process(keyword: str, city: str):
-    print(f"🕵️‍♂️ [START] Hunting for: {keyword} in {city}")
+    print(f"🕵️‍♂️ [HUNTER] Targeting: {keyword} in {city}")
     
     if not supabase: return
 
-    # قائمة أماكن البحث (استراتيجيات متنوعة)
+    # بنبحث في كل حتة
     queries = [
-        # 1. تيليجرام (كنز الجروبات)
-        f'site:t.me "{keyword}" "{city}" "010"',
-        
-        # 2. أوليكس والسوق المفتوح (للتجار والعقارات)
-        f'site:olx.com.eg "{keyword}" "010"',
-        f'site:opensooq.com "{keyword}" "010"',
-        
-        # 3. فيسبوك وإنستجرام (الأساسي)
         f'site:facebook.com "{keyword}" "{city}" "010"',
-        
-        # 4. بحث عام (أي منتدى أو موقع)
-        f'"{keyword}" "{city}" "010" OR "011" OR "012" -site:facebook.com' 
+        f'site:instagram.com "{keyword}" "{city}" "010"',
+        f'site:linkedin.com "{keyword}" "{city}" "@gmail.com"', # لينكد إن مليان إيميلات
+        f'"{keyword}" "{city}" "@gmail.com" OR "@yahoo.com"'
     ]
     
-    total_found = 0
+    total_phones = 0
+    total_emails = 0
     
     for q in queries:
-        print(f"🔎 Casting Net: {q}")
         try:
-            # بنجيب 20 نتيجة من كل منصة (الإجمالي ممكن يوصل 80 نتيجة)
-            results = DDGS().text(q, max_results=20)
+            results = DDGS().text(q, max_results=25)
             
             for res in list(results):
-                # دمج النص
                 content = str(res.get('body', '')) + " " + str(res.get('title', ''))
                 
-                # استخراج الأرقام (بياخد أي 11 رقم ورا بعض حتى لو بينهم مسافات)
-                # النمط ده بيمسك: 010xxxxxxxxx أو 010 xxxx xxxx
+                # 1. صيد الأرقام
                 phones = re.findall(r'(01[0125][0-9 \-]{8,15})', content)
-                
                 for raw_phone in phones:
-                    # تنظيف
                     phone = raw_phone.replace(" ", "").replace("-", "")
-                    
                     if len(phone) == 11:
-                        try:
-                            # تحديد المصدر بدقة (عشان تعرف الرقم جه منين)
-                            source_platform = "Web"
-                            if "t.me" in res.get('href', ''): source_platform = "Telegram"
-                            elif "olx" in res.get('href', ''): source_platform = "OLX"
-                            elif "facebook" in res.get('href', ''): source_platform = "Facebook"
-                            
-                            data = {
-                                "phone_number": phone,
-                                "source": f"{source_platform}: {keyword}",
-                                "status": "NEW",
-                                "notes": f"Link: {res.get('href')}"
-                            }
-                            supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-                            print(f"   ✅ CAUGHT ({source_platform}): {phone}")
-                            total_found += 1
-                        except: pass
+                        save_lead(phone, None, keyword, res.get('href'))
+                        total_phones += 1
+
+                # 2. صيد الإيميلات (لو ملقيناش رقم، أو حتى لو لقينا)
+                # المعادلة دي بتجيب أي إيميل ينتهي بـ .com أو .net
+                emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', content)
+                for email in emails:
+                    # بنسجل الإيميل، ولو مفيش رقم بنستخدم الإيميل كمعرف مؤقت
+                    save_lead(None, email, keyword, res.get('href'))
+                    total_emails += 1
                     
         except Exception as e:
-            print(f"   ⚠️ Network Error: {e}")
+            print(f"⚠️ Search Error: {e}")
 
-    print(f"🏁 Mission Complete. Total Leads: {total_found}")
+    print(f"🏁 Done. Phones: {total_phones} | Emails: {total_emails}")
+
+def save_lead(phone, email, keyword, source_link):
+    data = {
+        "source": f"Hunter: {keyword}",
+        "status": "NEW",
+        "notes": f"Source: {source_link}"
+    }
+    
+    # لو معانا رقم، هو ده الأساس
+    if phone:
+        data["phone_number"] = phone
+        if email: data["email"] = email # لو لقينا الاتنين، خير وبركة
+        try:
+            supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
+            print(f"   ✅ Saved Phone: {phone}")
+        except: pass
+
+    # لو معانا إيميل بس (ومفيش رقم)، هنسجله برضه
+    elif email:
+        # عشان الجدول بيحتاج phone_number وممنوع التكرار
+        # هنحط الإيميل في خانة الرقم مؤقتاً لحد ما نكلمه
+        data["phone_number"] = f"email_{email}" 
+        data["email"] = email
+        data["status"] = "EMAIL_ONLY" # عشان نعرف إن ده محتاج يتبعتله إيميل
+        try:
+            supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
+            print(f"   📧 Saved Email: {email}")
+        except: pass
 
 # --- Endpoints ---
 @app.get("/")
-def home(): return {"status": "Brain Online (Wide Net) 🧠"}
+def home(): return {"status": "Hunter v4 Online 🧠"}
 
 @app.post("/start_hunt")
 async def start_hunt(req: HuntRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_hunter_process, req.keyword, req.city)
     return {"status": "Deployed"}
 
-# ... (باقي كود Analyze Intent و Chat زي ما هو)
+# ... (باقي كود analyze_intent و chat زي ما هو بالضبط)
 @app.post("/analyze_intent")
 async def analyze_intent(req: ChatRequest):
     if not supabase: return {"action": "STOP", "reply": "DB Error"}
