@@ -13,13 +13,13 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-print("--- Start Up Logs ---")
+print("--- System Starting v3 (Wide Net) ---")
 try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     llm = ChatGroq(model="llama3-70b-8192", temperature=0.3, api_key=GROQ_API_KEY)
-    print("✅ System Connected!")
+    print("✅ All Systems Connected!")
 except Exception as e:
-    print(f"❌ Connection Error: {e}")
+    print(f"❌ Init Error: {e}")
     supabase = None
     llm = None
 
@@ -33,78 +33,87 @@ class ChatRequest(BaseModel):
     phone_number: str
     message: str
 
-# --- الصياد المطور (شبكة واسعة) ---
+# --- صياد بوضع "الشبكة العملاقة" ---
 def run_hunter_process(keyword: str, city: str):
-    print(f"🕵️‍♂️ [HUNTER] Searching for: {keyword} in {city}")
+    print(f"🕵️‍♂️ [START] Hunting for: {keyword} in {city}")
     
-    if not supabase:
-        print("❌ DB Not connected")
-        return
+    if not supabase: return
 
-    # استراتيجية البحث: بنستخدم backend='html' عشان نجيب نتايج أكتر
-    query = f'{keyword} {city} "010" OR "011" OR "012" OR "015"'
-    
-    try:
-        # بنجيب 30 نتيجة بدل 20
-        results = DDGS().text(query, max_results=30, backend='html') 
-        count = 0
+    # قائمة أماكن البحث (استراتيجيات متنوعة)
+    queries = [
+        # 1. تيليجرام (كنز الجروبات)
+        f'site:t.me "{keyword}" "{city}" "010"',
         
-        if not results:
-            print("⚠️ الصياد رجع وايده فاضية (مفيش نتايج من جوجل). جرب كلمات تانية.")
-            return
-
-        print(f"🔎 وجدنا {len(results)} نتيجة بحث.. جاري فحص الأرقام...")
-
-        for res in results:
-            # دمج العنوان والوصف
-            text_blob = str(res.get('body', '')) + " " + str(res.get('title', ''))
+        # 2. أوليكس والسوق المفتوح (للتجار والعقارات)
+        f'site:olx.com.eg "{keyword}" "010"',
+        f'site:opensooq.com "{keyword}" "010"',
+        
+        # 3. فيسبوك وإنستجرام (الأساسي)
+        f'site:facebook.com "{keyword}" "{city}" "010"',
+        
+        # 4. بحث عام (أي منتدى أو موقع)
+        f'"{keyword}" "{city}" "010" OR "011" OR "012" -site:facebook.com' 
+    ]
+    
+    total_found = 0
+    
+    for q in queries:
+        print(f"🔎 Casting Net: {q}")
+        try:
+            # بنجيب 20 نتيجة من كل منصة (الإجمالي ممكن يوصل 80 نتيجة)
+            results = DDGS().text(q, max_results=20)
             
-            # شبكة صيد ذكية (بتقفش الأرقام حتى لو فيها مسافات أو شرط)
-            # بياخد أي رقم يبدأ بـ 01 وبعده 9 أرقام (سواء لازقين أو بينهم مسافة)
-            raw_phones = re.findall(r'(01[0125][0-9 \-]{8,15})', text_blob)
-            
-            for raw_phone in raw_phones:
-                # تنظيف الرقم (شيل المسافات والشرط عشان يتسجل صح)
-                clean_phone = raw_phone.replace(" ", "").replace("-", "")
+            for res in list(results):
+                # دمج النص
+                content = str(res.get('body', '')) + " " + str(res.get('title', ''))
                 
-                # التأكد إن طول الرقم 11 (رقم مصري صحيح)
-                if len(clean_phone) == 11:
-                    try:
-                        data = {
-                            "phone_number": clean_phone,
-                            "source": f"Hunter: {keyword}",
-                            "status": "NEW",
-                            "notes": f"Source: {res.get('href', 'Search')}"
-                        }
-                        # Upsert عشان لو الرقم موجود قبل كده ميعملش خطأ
-                        supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-                        print(f"✅ تم صيد العميل: {clean_phone}")
-                        count += 1
-                    except Exception as db_err:
-                        print(f"⚠️ خطأ داتابيس: {db_err}")
-                        pass
+                # استخراج الأرقام (بياخد أي 11 رقم ورا بعض حتى لو بينهم مسافات)
+                # النمط ده بيمسك: 010xxxxxxxxx أو 010 xxxx xxxx
+                phones = re.findall(r'(01[0125][0-9 \-]{8,15})', content)
+                
+                for raw_phone in phones:
+                    # تنظيف
+                    phone = raw_phone.replace(" ", "").replace("-", "")
                     
-        print(f"🏁 انتهت المهمة. الحصيلة النهائية: {count} عميل.")
-        
-    except Exception as e:
-        print(f"❌ Hunter Crash: {e}")
+                    if len(phone) == 11:
+                        try:
+                            # تحديد المصدر بدقة (عشان تعرف الرقم جه منين)
+                            source_platform = "Web"
+                            if "t.me" in res.get('href', ''): source_platform = "Telegram"
+                            elif "olx" in res.get('href', ''): source_platform = "OLX"
+                            elif "facebook" in res.get('href', ''): source_platform = "Facebook"
+                            
+                            data = {
+                                "phone_number": phone,
+                                "source": f"{source_platform}: {keyword}",
+                                "status": "NEW",
+                                "notes": f"Link: {res.get('href')}"
+                            }
+                            supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
+                            print(f"   ✅ CAUGHT ({source_platform}): {phone}")
+                            total_found += 1
+                        except: pass
+                    
+        except Exception as e:
+            print(f"   ⚠️ Network Error: {e}")
+
+    print(f"🏁 Mission Complete. Total Leads: {total_found}")
 
 # --- Endpoints ---
 @app.get("/")
-def home(): return {"status": "Brain Online v2 🧠"}
+def home(): return {"status": "Brain Online (Wide Net) 🧠"}
 
 @app.post("/start_hunt")
 async def start_hunt(req: HuntRequest, background_tasks: BackgroundTasks):
-    print(f"📩 Order Received: {req.keyword}")
     background_tasks.add_task(run_hunter_process, req.keyword, req.city)
-    return {"status": "Hunter Deployed"}
+    return {"status": "Deployed"}
 
+# ... (باقي كود Analyze Intent و Chat زي ما هو)
 @app.post("/analyze_intent")
 async def analyze_intent(req: ChatRequest):
     if not supabase: return {"action": "STOP", "reply": "DB Error"}
     settings = supabase.table("project_settings").select("*").limit(1).execute()
     allowed = settings.data[0]['allowed_cities'] if settings.data else "القاهرة"
-    
     prompt = f"""حلل: "{req.message}". المسموح: {allowed}. JSON: {{"loc": "INSIDE/OUTSIDE", "intent": "INTERESTED/NOT"}}"""
     try:
         chain = ChatPromptTemplate.from_template(prompt) | llm | StrOutputParser()
@@ -112,7 +121,6 @@ async def analyze_intent(req: ChatRequest):
         if "{" in res_txt: res_txt = res_txt[res_txt.find("{"):res_txt.rfind("}")+1]
         res = json.loads(res_txt)
     except: res = {"loc": "UNKNOWN", "intent": "INTERESTED"}
-
     if res.get('loc') == 'OUTSIDE': return {"action": "STOP", "reply": "خارج النطاق"}
     if res.get('intent') == 'NOT_INTERESTED': return {"action": "STOP", "reply": "شكراً"}
     return {"action": "PROCEED", "intent": res.get('intent')}
