@@ -5,7 +5,7 @@ supabase
 streamlit
 pandas
 requests
-googlesearch-python
+duckduckgo-search
 langchain
 langchain-groq
 pydantic
