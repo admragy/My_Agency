@@ -9,13 +9,12 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-# جلب المفاتيح
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-SERPER_API_KEY = os.environ.get("SERPER_API_KEY") # المفتاح الجديد
+SERPER_API_KEY = os.environ.get("SERPER_API_KEY")
 
-print("--- Hunter V6 (Google Serper API) ---")
+print("--- Hunter V6.1 (Egypt Localized) ---")
 
 try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -36,28 +35,34 @@ class ChatRequest(BaseModel):
     phone_number: str
     message: str
 
-# --- الصياد النووي (Serper Google Search) ---
 def run_hunter_process(keyword: str, city: str):
-    print(f"🕵️‍♂️ [SERPER HUNTER] Targeting: {keyword} in {city}")
+    print(f"🕵️‍♂️ [SERPER EGYPT] Targeting: {keyword} in {city}")
     
-    if not supabase or not SERPER_API_KEY:
-        print("❌ Missing Config (DB or Serper Key)")
+    if not SERPER_API_KEY:
+        print("❌ SERPER_API_KEY is missing in Render Environment!")
         return
 
-    # استراتيجيات البحث القوية
+    # استراتيجيات البحث
     queries = [
         f'site:facebook.com "{keyword}" "{city}" "010"',
-        f'site:instagram.com "{keyword}" "{city}" "010"',
         f'site:olx.com.eg "{keyword}" "010"',
-        f'"{keyword}" "{city}" "010" OR "011" OR "012"'
+        f'"{keyword}" "{city}" "010" OR "011"'
     ]
     
     url = "https://google.serper.dev/search"
     total_saved = 0
 
     for q in queries:
-        print(f"🚀 Launching Query: {q}")
-        payload = json.dumps({"q": q, "num": 50}) # هات 50 نتيجة في المرة الواحدة
+        print(f"🚀 Query: {q}")
+        
+        # التعديل هنا: حددنا الدولة (eg) واللغة (ar)
+        payload = json.dumps({
+            "q": q,
+            "num": 20,
+            "gl": "eg",
+            "hl": "ar"
+        })
+        
         headers = {
             'X-API-KEY': SERPER_API_KEY,
             'Content-Type': 'application/json'
@@ -65,52 +70,54 @@ def run_hunter_process(keyword: str, city: str):
 
         try:
             response = requests.request("POST", url, headers=headers, data=payload)
-            results = response.json().get("organic", [])
+            data = response.json()
+            
+            # كشف الأخطاء: لو في رسالة خطأ من Serper اطبعها
+            if "message" in data:
+                print(f"⚠️ Serper Error Message: {data['message']}")
+            
+            results = data.get("organic", [])
             
             if not results:
-                print("   ⚠️ No results from Google.")
+                print(f"   ⚠️ Google returned 0 results for this query.")
                 continue
 
-            print(f"   -> Google returned {len(results)} pages. Scanning...")
+            print(f"   -> Found {len(results)} results. Scanning...")
 
             for res in results:
-                # دمج العنوان والوصف (Snippet)
                 content = str(res.get('title', '')) + " " + str(res.get('snippet', ''))
-                
-                # استخراج الأرقام
                 phones = re.findall(r'(01[0125][0-9 \-]{8,15})', content)
                 
                 for raw_phone in phones:
                     phone = raw_phone.replace(" ", "").replace("-", "")
-                    
                     if len(phone) == 11:
                         try:
-                            data = {
+                            save_data = {
                                 "phone_number": phone,
                                 "source": f"Google: {keyword}",
                                 "status": "NEW",
                                 "notes": f"Link: {res.get('link')}"
                             }
-                            supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
+                            supabase.table("leads").upsert(save_data, on_conflict="phone_number").execute()
                             print(f"   ✅ CAUGHT: {phone}")
                             total_saved += 1
                         except: pass
                         
         except Exception as e:
-            print(f"   ❌ API Error: {e}")
+            print(f"   ❌ Request Error: {e}")
 
-    print(f"🏁 Mission Complete. Total Fresh Leads: {total_saved}")
+    print(f"🏁 Done. Total: {total_saved}")
 
 # --- Endpoints ---
 @app.get("/")
-def home(): return {"status": "Hunter V6 (Nuclear) Online ☢️"}
+def home(): return {"status": "Hunter V6.1 Online"}
 
 @app.post("/start_hunt")
 async def start_hunt(req: HuntRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_hunter_process, req.keyword, req.city)
     return {"status": "Deployed"}
 
-# ... (باقي كود analyze_intent و chat زي ما هو، سيبه تحت الكود ده)
+# ... (باقي كود analyze_intent و chat زي ما هو)
 @app.post("/analyze_intent")
 async def analyze_intent(req: ChatRequest):
     if not supabase: return {"action": "STOP", "reply": "DB Error"}
