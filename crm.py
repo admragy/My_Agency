@@ -3,204 +3,166 @@ import pandas as pd
 import requests
 from supabase import create_client
 
-# --- 1. إعداد الصفحة والتصميم ---
+# --- 1. إعداد الصفحة ---
 st.set_page_config(
-    page_title="Agency Geniuses",
-    page_icon="🦅",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Mass Hunter V14",
+    page_icon="☢️",
+    layout="wide"
 )
 
-# --- 2. الاتصال بالسحابة (Secrets) ---
+# --- 2. الاتصال بالسحابة ---
 try:
-    # قراءة المفاتيح من إعدادات Streamlit Cloud
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
     API_URL = st.secrets["API_URL"]
-    
-    # إنشاء اتصال مباشر بالداتابيس
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-except Exception as e:
-    st.error("⚠️ خطأ في الاتصال: تأكد من وضع المفاتيح في Secrets.")
+except:
+    st.error("⚠️ خطأ في الاتصال: راجع الـ Secrets")
     st.stop()
 
-# --- 3. العنوان الرئيسي ---
-st.title("🦅 غرفة عمليات الوكالة الذكية")
-st.markdown("---")
+st.title("☢️ غرفة عمليات - Mass Hunter V14")
+st.caption("نظام الصيد النووي متعدد المفاتيح والتحليل الذكي")
 
-# --- 4. القائمة الجانبية ---
+# القائمة الجانبية
 menu = st.sidebar.radio(
-    "القائمة الرئيسية", 
-    ["📊 الداتا والنتائج", "🕵️‍♂️ الصياد الذكي", "➕ إضافة عميل يدوي", "🚀 إدارة الحملات", "⚙️ إعدادات المناطق"]
+    "القائمة", 
+    ["📊 تحليل الداتا (Data)", "🚀 إطلاق الصياد", "➕ إضافة يدوية", "📦 الحملات", "⚙️ الإعدادات"]
 )
 
-# ==================================================
-# الصفحة 1: الداتا والنتائج (The Treasure)
-# ==================================================
-if menu == "📊 الداتا والنتائج":
-    st.header("💎 كنز العملاء (Leads Vault)")
-    
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        if st.button("تحديث الجدول 🔄", use_container_width=True):
+# ==========================================
+# 1. صفحة الداتا (الأهم)
+# ==========================================
+if menu == "📊 تحليل الداتا (Data)":
+    c1, c2 = st.columns([4, 1])
+    with c1:
+        st.header("💎 الكنز (Leads Vault)")
+    with c2:
+        if st.button("تحديث 🔄", use_container_width=True):
             st.rerun()
-            
-    # جلب الداتا (الأحدث أولاً)
-    response = supabase.table("leads").select("*").order("created_at", desc=True).execute()
-    leads = response.data
+
+    # جلب الداتا
+    leads = supabase.table("leads").select("*").order("created_at", desc=True).execute().data
     
     if leads:
         df = pd.DataFrame(leads)
         
-        # إحصائيات سريعة (Metrics)
+        # --- لوحة العدادات (Metrics) ---
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("إجمالي الصيد", len(df))
+        m1.metric("الإجمالي", len(df))
         
-        # حساب التصنيفات لو العمود موجود
+        # تصنيف الجودة A
         if 'quality' in df.columns:
-            excellent = len(df[df['quality'].str.contains('Excellent', na=False)])
-            very_good = len(df[df['quality'].str.contains('Very', na=False)])
-            m2.metric("🔥 عملاء لقطة", excellent)
-            m3.metric("⭐ جيد جداً", very_good)
-        
-        emails_only = len(df[df['status'] == 'EMAIL_ONLY'])
-        m4.metric("📧 إيميلات", emails_only)
-        
+            a_leads = len(df[df['quality'] == 'A'])
+            m2.metric("🔥 عملاء A+ (لقطة)", a_leads)
+            
+        # تصنيف الاستعجال High
+        if 'urgency' in df.columns:
+            urgent = len(df[df['urgency'] == 'HIGH'])
+            m3.metric("🚨 مستعجلين جداً", urgent)
+            
+        # تصنيف المنصة
+        if 'platform' in df.columns:
+            fb = len(df[df['platform'] == 'FACEBOOK'])
+            m4.metric("من فيسبوك", fb)
+            
         st.markdown("---")
         
-        # تنظيف الجدول للعرض (اختيار أعمدة معينة)
-        # نتأكد إن الأعمدة موجودة عشان ميحصلش خطأ
-        cols_to_show = ['quality', 'phone_number', 'email', 'source', 'notes', 'created_at']
-        available_cols = [c for c in cols_to_show if c in df.columns]
+        # --- الجدول الذكي ---
+        # تجهيز الأعمدة للعرض
+        cols = ['quality', 'urgency', 'intent_detected', 'phone_number', 'platform', 'notes', 'created_at']
+        # فلترة الأعمدة الموجودة فقط لتجنب الأخطاء
+        valid_cols = [c for c in cols if c in df.columns]
         
         st.dataframe(
-            df[available_cols],
+            df[valid_cols],
             column_config={
-                "quality": st.column_config.TextColumn("جودة العميل", width="medium"),
-                "phone_number": st.column_config.TextColumn("الموبايل", width="medium"),
-                "email": "البريد الإلكتروني",
-                "source": "المصدر",
-                "notes": "ملاحظات / الرابط",
-                "created_at": st.column_config.DatetimeColumn("توقيت الصيد", format="D MMM, HH:mm")
+                "quality": st.column_config.TextColumn("الجودة", help="A=ممتاز, B=جيد, C=عادي"),
+                "urgency": st.column_config.TextColumn("الاستعجال", help="مدى حاجة العميل"),
+                "intent_detected": "النية",
+                "phone_number": "الموبايل",
+                "platform": "المنصة",
+                "notes": st.column_config.TextColumn("النص الأصلي / الملاحظات", width="large"),
+                "created_at": st.column_config.DatetimeColumn("الوقت", format="D MMM HH:mm")
             },
             use_container_width=True,
             hide_index=True
         )
     else:
-        st.info("📭 الخزنة فارغة.. اذهب للصياد واملأها!")
+        st.info("الخزنة فارغة.. ابدأ الصيد!")
 
-# ==================================================
-# الصفحة 2: الصياد الذكي (Smart Hunter)
-# ==================================================
-elif menu == "🕵️‍♂️ الصياد الذكي":
-    st.header("🎣 إطلاق الصياد (Hunter V12)")
-    st.info("اكتب جملة تشرح هدفك، والذكاء الاصطناعي سيحدد أفضل استراتيجية بحث.")
+# ==========================================
+# 2. صفحة الصيد (Hunter)
+# ==========================================
+elif menu == "🚀 إطلاق الصياد":
+    st.header("🛰️ مركز التحكم في الصياد")
+    st.info("اكتب وصفاً لما تريد، والذكاء الاصطناعي سيولد كلمات البحث المناسبة.")
     
-    with st.form("hunt_form"):
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            intent = st.text_input("ماذا تريد؟ (مثال: أنا دكتور أسنان وعايز حالات زراعة / ببيع عقارات في التجمع)")
-        with c2:
-            city = st.text_input("المدينة المستهدفة", "القاهرة")
-            
-        submitted = st.form_submit_button("🚀 اطلق الصياد الآن")
+    with st.form("hunt"):
+        intent = st.text_area("ماذا تريد؟ (مثال: أنا ببيع كوتشيات جملة في العتبة وعايز تجار)", height=100)
+        city = st.text_input("المدينة / المنطقة", "القاهرة")
         
-        if submitted and intent:
-            with st.spinner("جاري الاتصال بالمخ وتشغيل المحركات..."):
-                try:
-                    # إرسال الطلب لـ Render
-                    payload = {"intent_sentence": intent, "city": city}
-                    res = requests.post(f"{API_URL}/start_hunt", json=payload)
-                    
-                    if res.status_code == 200:
-                        st.success(f"✅ تم الإطلاق بنجاح! الصياد يعمل الآن في الخلفية.")
-                        st.caption("يمكنك متابعة النتائج في صفحة 'الداتا' بعد دقيقة.")
-                    else:
-                        st.error(f"حدث خطأ في الاتصال بالسيرفر: {res.status_code}")
-                except Exception as e:
-                    st.error(f"فشل الاتصال: {e}")
-
-# ==================================================
-# الصفحة 3: إضافة عميل يدوي (Manual Add)
-# ==================================================
-elif menu == "➕ إضافة عميل يدوي":
-    st.header("📝 تسجيل عميل جديد")
-    
-    with st.form("manual_entry"):
-        phone = st.text_input("رقم الهاتف (01xxxxxxxxx)")
-        email = st.text_input("الإيميل (اختياري)")
-        notes = st.text_area("ملاحظات عن العميل")
+        btn = st.form_submit_button("🚀 إطلاق الصواريخ (Start Hunt)")
         
-        save_btn = st.form_submit_button("حفظ في الداتابيس")
-        
-        if save_btn and (phone or email):
-            data = {
-                "phone_number": phone if phone else f"manual_{email}",
-                "email": email,
-                "source": "Manual Entry",
-                "status": "NEW",
-                "quality": "Manual ✅",
-                "notes": notes
-            }
+        if btn and intent:
             try:
-                supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-                st.success("تم الحفظ بنجاح! العميل جاهز للمراسلة.")
+                payload = {"intent_sentence": intent, "city": city}
+                res = requests.post(f"{API_URL}/start_hunt", json=payload)
+                if res.status_code == 200:
+                    st.success("✅ تم الإطلاق! الصياد يعمل الآن في الخلفية بذكاء V14.")
+                    st.caption("تابع صفحة 'تحليل الداتا' لمشاهدة النتائج لحظياً.")
+                else:
+                    st.error(f"خطأ في الاتصال: {res.status_code}")
             except Exception as e:
-                st.error(f"خطأ أثناء الحفظ: {e}")
+                st.error(f"فشل: {e}")
 
-# ==================================================
-# الصفحة 4: إدارة الحملات (Campaigns)
-# ==================================================
-elif menu == "🚀 إدارة الحملات":
-    st.header("📦 تجهيز العرض والمنتج")
-    st.write("هنا بتحدد الـ AI هيقول إيه للعملاء، والصورة اللي هتتبعتلهم.")
+# ==========================================
+# 3. إضافة يدوية
+# ==========================================
+elif menu == "➕ إضافة يدوية":
+    st.header("تسجيل عميل يدوي")
+    with st.form("manual"):
+        phone = st.text_input("رقم الموبايل")
+        note = st.text_input("ملاحظات")
+        if st.form_submit_button("حفظ"):
+            try:
+                supabase.table("leads").upsert({
+                    "phone_number": phone, 
+                    "source": "Manual", 
+                    "status": "NEW",
+                    "quality": "Manual",
+                    "notes": note
+                }, on_conflict="phone_number").execute()
+                st.success("تم الحفظ")
+            except: st.error("خطأ")
+
+# ==========================================
+# 4. الحملات
+# ==========================================
+elif menu == "📦 الحملات":
+    st.header("إعداد الحملة التسويقية")
+    current = supabase.table("campaigns").select("*").eq("is_active", True).execute().data
+    if current: st.success(f"الحملة النشطة: {current[0]['campaign_name']}")
     
-    # عرض الحملة الحالية
-    current_camp = supabase.table("campaigns").select("*").eq("is_active", True).execute().data
-    if current_camp:
-        st.info(f"✅ الحملة النشطة حالياً: **{current_camp[0]['campaign_name']}**")
-    
-    with st.form("campaign_form"):
-        name = st.text_input("اسم الحملة الجديد")
-        desc = st.text_area("وصف المنتج / السكريبت (الـ AI هيذاكر الكلام ده)")
-        media = st.text_input("رابط الصورة أو الفيديو (Direct Link)")
-        
-        submit_camp = st.form_submit_button("تنشيط الحملة الجديدة")
-        
-        if submit_camp:
-            # 1. إيقاف القديم
+    with st.form("camp"):
+        name = st.text_input("اسم الحملة")
+        desc = st.text_area("وصف المنتج (لـ AI)")
+        img = st.text_input("رابط الصورة")
+        if st.form_submit_button("تفعيل"):
             supabase.table("campaigns").update({"is_active": False}).eq("is_active", True).execute()
-            # 2. تفعيل الجديد
-            supabase.table("campaigns").insert({
-                "campaign_name": name,
-                "product_description": desc,
-                "media_url": media,
-                "is_active": True
-            }).execute()
-            st.success("تم تفعيل الحملة! الـ AI جاهز للبيع.")
+            supabase.table("campaigns").insert({"campaign_name": name, "product_description": desc, "media_url": img, "is_active": True}).execute()
+            st.success("تم التفعيل")
             st.rerun()
 
-# ==================================================
-# الصفحة 5: الإعدادات (Settings)
-# ==================================================
-elif menu == "⚙️ إعدادات المناطق":
-    st.header("📍 الفلترة الجغرافية")
+# ==========================================
+# 5. الإعدادات
+# ==========================================
+elif menu == "⚙️ الإعدادات":
+    st.header("إعدادات المناطق")
+    curr = supabase.table("project_settings").select("*").limit(1).execute().data
+    val = curr[0]['allowed_cities'] if curr else "القاهرة"
     
-    # جلب الإعدادات الحالية
-    settings = supabase.table("project_settings").select("*").limit(1).execute().data
-    current_zones = settings[0]['allowed_cities'] if settings else "القاهرة"
-    current_msg = settings[0]['reject_message'] if settings else "نعتذر، الخدمة غير متاحة."
-    
-    with st.form("geo_settings"):
-        zones = st.text_area("المناطق المسموحة (افصل بفاصلة)", value=current_zones)
-        rej_msg = st.text_input("رسالة الرفض (للمناطق الأخرى)", value=current_msg)
-        
-        save_geo = st.form_submit_button("حفظ الإعدادات")
-        
-        if save_geo:
-            if settings:
-                supabase.table("project_settings").update({"allowed_cities": zones, "reject_message": rej_msg}).eq("id", settings[0]['id']).execute()
-            else:
-                supabase.table("project_settings").insert({"allowed_cities": zones, "reject_message": rej_msg}).execute()
-            st.success("تم تحديث مناطق العمل.")
-
+    new_val = st.text_input("المناطق المسموحة", value=val)
+    if st.button("حفظ"):
+        if curr: supabase.table("project_settings").update({"allowed_cities": new_val}).eq("id", curr[0]['id']).execute()
+        else: supabase.table("project_settings").insert({"allowed_cities": new_val}).execute()
+        st.success("تم الحفظ")
