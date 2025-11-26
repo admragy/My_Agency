@@ -145,3 +145,4 @@ async def analyze_intent(req: ChatRequest): return {"action": "PROCEED", "intent
 
 @app.post("/chat")
 async def chat(req: ChatRequest): return {"response": "أهلاً"}
+
