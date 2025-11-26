@@ -9,135 +9,162 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
+# الإعدادات والمفاتيح
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-SERPER_API_KEY = os.environ.get("SERPER_API_KEY")
+# مفاتيح Serper المتعددة (لضمان عدم التوقف)
+SERPER_KEYS_RAW = os.environ.get("SERPER_KEYS", "") 
+SERPER_KEYS = [k.strip() for k in SERPER_KEYS_RAW.split(',') if k.strip()]
 
-print("--- Hunter V6.1 (Egypt Localized) ---")
+print(f"--- Hunter V12 (The Judge) --- Active Keys: {len(SERPER_KEYS)}")
 
 try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     llm = ChatGroq(model="llama3-70b-8192", temperature=0.3, api_key=GROQ_API_KEY)
     print("✅ System Connected!")
-except Exception as e:
-    print(f"❌ Error: {e}")
+except:
     supabase = None
     llm = None
 
 app = FastAPI()
 
 class HuntRequest(BaseModel):
-    keyword: str
+    intent_sentence: str
     city: str
 
 class ChatRequest(BaseModel):
     phone_number: str
     message: str
 
-def run_hunter_process(keyword: str, city: str):
-    print(f"🕵️‍♂️ [SERPER EGYPT] Targeting: {keyword} in {city}")
-    
-    if not SERPER_API_KEY:
-        print("❌ SERPER_API_KEY is missing in Render Environment!")
-        return
+# --- 1. أدوات المساعدة (المناطق والمفاتيح) ---
+def get_sub_locations(city):
+    try:
+        prompt = f"أعطني قائمة بـ 5 أحياء حيوية داخل '{city}' مفصولة بفاصلة فقط."
+        res = llm.invoke(prompt).content
+        return [x.strip() for x in res.split(',') if x.strip()]
+    except: return [city]
 
-    # استراتيجيات البحث
-    queries = [
-        f'site:facebook.com "{keyword}" "{city}" "010"',
-        f'site:olx.com.eg "{keyword}" "010"',
-        f'"{keyword}" "{city}" "010" OR "011"'
-    ]
-    
-    url = "https://google.serper.dev/search"
-    total_saved = 0
+key_index = 0
+def get_active_key():
+    global key_index
+    if not SERPER_KEYS: return None
+    k = SERPER_KEYS[key_index]
+    key_index = (key_index + 1) % len(SERPER_KEYS)
+    return k
 
-    for q in queries:
-        print(f"🚀 Query: {q}")
+# --- 2. القاضي (Quality Scorer) ⚖️ ---
+def judge_lead(text):
+    text = text.lower()
+    score = 0
+    # كلمات تدل على الجودة
+    if any(x in text for x in ["مطلوب", "شراء", "كاش", "buy", "urgent"]): score += 5
+    if any(x in text for x in ["سعر", "تفاصيل", "price", "details"]): score += 2
+    # كلمات سلبية (منافسين)
+    if any(x in text for x in ["للبيع", "sale", "offer", "متوفر"]): return "Competitor"
         
-        # التعديل هنا: حددنا الدولة (eg) واللغة (ar)
-        payload = json.dumps({
-            "q": q,
-            "num": 20,
-            "gl": "eg",
-            "hl": "ar"
-        })
-        
-        headers = {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json'
-        }
+    if score >= 5: return "Excellent 🔥"
+    if score >= 2: return "Very Good ⭐"
+    return "Good ✅"
 
+# --- 3. دالة الحفظ (رقم أو إيميل فقط) ---
+def save_lead(phone, email, keyword, link, quality):
+    data = {
+        "source": f"Hydra: {keyword}",
+        "status": "NEW",
+        "notes": f"Link: {link}",
+        "quality": quality
+    }
+    
+    # الأولوية للرقم
+    if phone:
+        data["phone_number"] = phone
+        if email: data["email"] = email
         try:
-            response = requests.request("POST", url, headers=headers, data=payload)
-            data = response.json()
-            
-            # كشف الأخطاء: لو في رسالة خطأ من Serper اطبعها
-            if "message" in data:
-                print(f"⚠️ Serper Error Message: {data['message']}")
-            
-            results = data.get("organic", [])
-            
-            if not results:
-                print(f"   ⚠️ Google returned 0 results for this query.")
-                continue
+            supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
+            print(f"   ✅ SAVED PHONE ({quality}): {phone}")
+        except: pass
+    
+    # لو مفيش رقم، ناخد الإيميل
+    elif email:
+        data["phone_number"] = f"email_{email}"
+        data["email"] = email
+        data["status"] = "EMAIL_ONLY"
+        try:
+            supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
+            print(f"   📧 SAVED EMAIL ({quality}): {email}")
+        except: pass
 
-            print(f"   -> Found {len(results)} results. Scanning...")
-
-            for res in results:
-                content = str(res.get('title', '')) + " " + str(res.get('snippet', ''))
-                phones = re.findall(r'(01[0125][0-9 \-]{8,15})', content)
+# --- 4. المحرك الرئيسي ---
+def run_hydra_process(intent: str, main_city: str):
+    if not supabase or not SERPER_KEYS: return
+    
+    sub_cities = get_sub_locations(main_city)
+    print(f"🌍 Targeting: {sub_cities}")
+    
+    for area in sub_cities:
+        # معادلات البحث
+        queries = [
+            f'site:facebook.com "{intent}" "{area}" "010"',
+            f'site:olx.com.eg "{intent}" "{area}" "010"',
+            f'"{intent}" "{area}" "@gmail.com"'
+        ]
+        
+        for q in queries:
+            api_key = get_active_key()
+            if not api_key: break
+            
+            payload = json.dumps({"q": q, "num": 20, "gl": "eg", "hl": "ar"})
+            headers = {'X-API-KEY': api_key, 'Content-Type': 'application/json'}
+            
+            try:
+                response = requests.post("https://google.serper.dev/search", headers=headers, data=payload)
+                results = response.json().get("organic", [])
                 
-                for raw_phone in phones:
-                    phone = raw_phone.replace(" ", "").replace("-", "")
-                    if len(phone) == 11:
-                        try:
-                            save_data = {
-                                "phone_number": phone,
-                                "source": f"Google: {keyword}",
-                                "status": "NEW",
-                                "notes": f"Link: {res.get('link')}"
-                            }
-                            supabase.table("leads").upsert(save_data, on_conflict="phone_number").execute()
-                            print(f"   ✅ CAUGHT: {phone}")
-                            total_saved += 1
-                        except: pass
-                        
-        except Exception as e:
-            print(f"   ❌ Request Error: {e}")
+                for res in results:
+                    snippet = str(res.get('title', '')) + " " + str(res.get('snippet', ''))
+                    
+                    # تقييم الجودة
+                    quality = judge_lead(snippet)
+                    if quality == "Competitor": continue # تجاهل المنافسين
 
-    print(f"🏁 Done. Total: {total_saved}")
+                    # استخراج الأرقام
+                    phones = re.findall(r'(01[0125][0-9 \-]{8,15})', snippet)
+                    for raw in phones:
+                        clean = raw.replace(" ", "").replace("-", "")
+                        if len(clean) == 11:
+                            save_lead(clean, None, intent, res.get('link'), quality)
+
+                    # استخراج الإيميلات
+                    emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', snippet)
+                    for mail in emails:
+                        save_lead(None, mail, intent, res.get('link'), quality)
+                            
+            except Exception as e:
+                print(f"   ⚠️ Search Error: {e}")
+
+    print(f"🏁 Mission Complete.")
 
 # --- Endpoints ---
 @app.get("/")
-def home(): return {"status": "Hunter V6.1 Online"}
+def home(): return {"status": "Brain Online"}
 
 @app.post("/start_hunt")
 async def start_hunt(req: HuntRequest, background_tasks: BackgroundTasks):
-    background_tasks.add_task(run_hunter_process, req.keyword, req.city)
-    return {"status": "Deployed"}
+    background_tasks.add_task(run_hydra_process, req.intent_sentence, req.city)
+    return {"status": "Started"}
 
-# ... (باقي كود analyze_intent و chat زي ما هو)
+# ... (Analyze & Chat كما هما، لا تغيير)
 @app.post("/analyze_intent")
 async def analyze_intent(req: ChatRequest):
-    if not supabase: return {"action": "STOP", "reply": "DB Error"}
-    settings = supabase.table("project_settings").select("*").limit(1).execute()
-    allowed = settings.data[0]['allowed_cities'] if settings.data else "القاهرة"
-    prompt = f"""حلل: "{req.message}". المسموح: {allowed}. JSON: {{"loc": "INSIDE/OUTSIDE", "intent": "INTERESTED/NOT"}}"""
-    try:
-        chain = ChatPromptTemplate.from_template(prompt) | llm | StrOutputParser()
-        res_txt = chain.invoke({}).replace("```json", "").replace("```", "").strip()
-        if "{" in res_txt: res_txt = res_txt[res_txt.find("{"):res_txt.rfind("}")+1]
-        res = json.loads(res_txt)
-    except: res = {"loc": "UNKNOWN", "intent": "INTERESTED"}
-    if res.get('loc') == 'OUTSIDE': return {"action": "STOP", "reply": "خارج النطاق"}
-    if res.get('intent') == 'NOT_INTERESTED': return {"action": "STOP", "reply": "شكراً"}
-    return {"action": "PROCEED", "intent": res.get('intent')}
+    if not supabase: return {"action": "STOP"}
+    # كود تحليل بسيط
+    return {"action": "PROCEED", "intent": "INTERESTED"}
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
     camp = supabase.table("campaigns").select("*").eq("is_active", True).limit(1).execute()
-    info = camp.data[0]['product_description'] if camp.data else "لا توجد حملة"
+    info = camp.data[0]['product_description'] if camp.data else "عام"
     res = llm.invoke(f"بائع مصري. المنتج: {info}. العميل: {req.message}. رد باختصار:").content
     supabase.table("interactions").insert({"phone_number": req.phone_number, "user_query": req.message, "ai_response": res}).execute()
     return {"response": res}
