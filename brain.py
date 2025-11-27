@@ -2,19 +2,20 @@ import os
 import json
 import re
 import requests
+import time
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
 from supabase import create_client
 from langchain_groq import ChatGroq
 
-# الإعدادات
+# --- الإعدادات ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SERPER_KEYS_RAW = os.environ.get("SERPER_KEYS") or os.environ.get("SERPER_API_KEY") or ""
 SERPER_KEYS = [k.strip().replace('"', '') for k in SERPER_KEYS_RAW.split(',') if k.strip()]
 
-print(f"--- Brain V23 (Hydra + Sniper) --- Active Keys: {len(SERPER_KEYS)}")
+print(f"--- Brain V25 (The Vacuum 🧹) --- Active Keys: {len(SERPER_KEYS)}")
 
 try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -31,13 +32,13 @@ class HuntRequest(BaseModel):
     city: str
     time_filter: str = "qdr:m"
     user_id: str = "admin"
-    mode: str = "general" # general OR sniper
+    mode: str = "general"
 
 class ChatRequest(BaseModel):
     phone_number: str
     message: str
 
-# --- الأدوات ---
+# --- إدارة المفاتيح ---
 key_index = 0
 def get_active_key():
     global key_index
@@ -46,16 +47,21 @@ def get_active_key():
     key_index = (key_index + 1) % len(SERPER_KEYS)
     return k
 
+# --- تقسيم المناطق (لزيادة الكثافة) ---
 def get_sub_locations(city):
-    if city in ["مصر", "egypt", "الجمهورية"]:
-        return ["القاهرة", "الجيزة", "الإسكندرية", "الدقهلية", "الشرقية", "الغربية", "المنوفية"]
+    if city in ["مصر", "egypt"]:
+        return ["القاهرة", "الجيزة", "الإسكندرية", "الدقهلية", "الشرقية"]
     if "القاهرة" in city:
-        return ["المعادي", "التجمع الخامس", "مدينة نصر", "مصر الجديدة", "الزمالك", "وسط البلد"]
+        return ["المعادي", "التجمع الخامس", "مدينة نصر", "مصر الجديدة", "الزمالك", "الهرم", "شبرا"]
     if "," in city:
         return [c.strip() for c in city.split(",")]
     return [city]
 
-def save_lead(phone, email, keyword, link, quality, user_id, source_type):
+# --- الحفظ (بدون شروط معقدة) ---
+def save_lead(phone, email, keyword, link, user_id, source_type):
+    # تقييم مبدئي بسيط جداً
+    quality = "Good ✅" 
+    
     data = {
         "source": f"{source_type}: {keyword}",
         "status": "NEW",
@@ -63,13 +69,14 @@ def save_lead(phone, email, keyword, link, quality, user_id, source_type):
         "quality": quality,
         "user_id": user_id
     }
+    
     saved = False
     if phone:
         data["phone_number"] = phone
         if email: data["email"] = email
         try:
             supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-            print(f"   ✅ SAVED PHONE: {phone}")
+            print(f"   ✅ STORED: {phone}")
             saved = True
         except: pass
     elif email:
@@ -78,77 +85,85 @@ def save_lead(phone, email, keyword, link, quality, user_id, source_type):
         data["status"] = "EMAIL_ONLY"
         try:
             supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-            print(f"   📧 SAVED EMAIL: {email}")
+            print(f"   📧 STORED EMAIL: {email}")
             saved = True
         except: pass
     return saved
 
-def judge_lead(text):
-    text = text.lower()
-    if any(x in text for x in ["مطلوب", "شراء", "كاش", "buy", "urgent"]): return "Excellent 🔥"
-    if any(x in text for x in ["سعر", "تفاصيل", "price"]): return "Very Good ⭐"
-    return "Good ✅"
-
-# --- المحرك الرئيسي ---
+# --- المحرك الرئيسي (الشفاط) ---
 def run_hydra_process(intent: str, main_city: str, time_filter: str, user_id: str, mode: str):
-    if not SERPER_KEYS: return
+    if not SERPER_KEYS: 
+        print("❌ NO KEYS")
+        return
     
     sub_cities = get_sub_locations(main_city)
-    print(f"🌍 Hunting ({mode}) for {user_id} in {sub_cities}")
+    print(f"🌍 Vacuuming in: {sub_cities}")
     
+    total_found = 0
+
     for area in sub_cities:
-        queries = []
-        
-        # استراتيجية القناص (Sniper Mode)
-        if mode == "sniper":
-            # البحث عن اسم المنافس + رقم تليفون
-            queries = [
-                f'site:facebook.com "{intent}" "{area}" "010"',
-                f'site:instagram.com "{intent}" "{area}" "010"',
-                f'"{intent}" "{area}" "010"'
-            ]
-        # استراتيجية الصيد العام (General Mode)
-        else:
-            queries = [
-                f'site:facebook.com {intent} {area} 010',
-                f'site:olx.com.eg {intent} {area} 010',
-                f'{intent} {area} 010'
-            ]
+        # معادلات بحث واسعة جداً (OR) عشان تلم كله
+        queries = [
+            f'site:facebook.com "{intent}" "{area}" "010"',
+            f'site:olx.com.eg "{intent}" "{area}" "010"',
+            f'"{intent}" "{area}" "010" -site:youtube.com'
+        ]
         
         for q in queries:
-            for start_page in range(0, 40, 10):
-                api_key = get_active_key()
-                if not api_key: break
+            api_key = get_active_key()
+            if not api_key: break
+            
+            # التغيير الجذري: طلبنا 100 نتيجة في الصفحة الواحدة
+            # وهنجرب صفحتين (يعني 200 نتيجة لكل منطقة)
+            for start_index in [0, 100]: 
                 
-                payload = json.dumps({"q": q, "start": start_page, "num": 20, "tbs": time_filter})
+                payload = json.dumps({
+                    "q": q,
+                    "num": 100, # هات أقصى عدد ممكن
+                    "start": start_index,
+                    "tbs": time_filter
+                })
+                
                 headers = {'X-API-KEY': api_key, 'Content-Type': 'application/json'}
                 
                 try:
+                    print(f"🚀 Scanning ({area}): {q} | Offset: {start_index}")
                     response = requests.post("https://google.serper.dev/search", headers=headers, data=payload)
                     results = response.json().get("organic", [])
-                    if not results: break
+                    
+                    if not results: 
+                        print("   ⚠️ Empty page, checking next...")
+                        continue # كمل متقفش
+
+                    print(f"   -> Found {len(results)} raw results.")
 
                     for res in results:
-                        snippet = str(res.get('title', '')) + " " + str(res.get('snippet', ''))
-                        quality = judge_lead(snippet)
+                        # دمج العنوان والوصف
+                        blob = str(res.get('title', '')) + " " + str(res.get('snippet', ''))
                         
-                        # في وضع القناص، كل النتائج تعتبر ممتازة
-                        if mode == "sniper": quality = "Target 🎯"
-
-                        phones = re.findall(r'(01[0125][0-9 \-]{8,15})', snippet)
+                        # استخراج أي رقم مصري يقابلنا
+                        phones = re.findall(r'(01[0125][0-9 \-]{8,15})', blob)
+                        
                         for raw in phones:
                             clean = raw.replace(" ", "").replace("-", "")
                             if len(clean) == 11:
-                                save_lead(clean, None, intent, res.get('link'), quality, user_id, "Sniper" if mode=="sniper" else "Hunter")
+                                if save_lead(clean, None, intent, res.get('link'), user_id, "Hunter"):
+                                    total_found += 1
 
-                        emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', snippet)
+                        # استخراج إيميلات
+                        emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', blob)
                         for mail in emails:
-                            save_lead(None, mail, intent, res.get('link'), quality, user_id, "Sniper" if mode=="sniper" else "Hunter")
-                except: pass
+                            save_lead(None, mail, intent, res.get('link'), user_id, "Hunter")
+                            
+                except Exception as e:
+                    print(f"   ⚠️ Err: {e}")
+                    time.sleep(1)
+
+    print(f"🏁 VACUUM FINISHED. Total Stored: {total_found}")
 
 # --- Endpoints ---
 @app.get("/")
-def home(): return {"status": "Brain V23 Online"}
+def home(): return {"status": "Brain V25 Vacuum"}
 
 @app.post("/start_hunt")
 async def start_hunt(req: HuntRequest, background_tasks: BackgroundTasks):
