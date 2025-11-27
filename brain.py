@@ -6,17 +6,16 @@ from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
 from supabase import create_client
 from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 
 # --- الإعدادات والمفاتيح ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+# تنظيف مفاتيح Serper من أي شوائب
 SERPER_KEYS_RAW = os.environ.get("SERPER_KEYS") or os.environ.get("SERPER_API_KEY") or ""
 SERPER_KEYS = [k.strip().replace('"', '') for k in SERPER_KEYS_RAW.split(',') if k.strip()]
 
-print(f"--- Ultimate Hunter V18 (Reverse + Deep + Time) --- Keys: {len(SERPER_KEYS)}")
+print(f"--- Hunter V19 (Map Master) --- Active Keys: {len(SERPER_KEYS)}")
 
 try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -37,7 +36,7 @@ class ChatRequest(BaseModel):
     phone_number: str
     message: str
 
-# --- 1. إدارة المفاتيح ---
+# --- 1. إدارة مفاتيح البحث (Rotation) ---
 key_index = 0
 def get_active_key():
     global key_index
@@ -46,59 +45,60 @@ def get_active_key():
     key_index = (key_index + 1) % len(SERPER_KEYS)
     return k
 
-# --- 2. تقسيم المناطق (تفتيت المدينة) ---
+# --- 2. خريطة مصر الذكية (Smart Geo-Splitter) ---
 def get_sub_locations(city):
+    city = city.lower().strip()
+    
+    # أ: لو العميل طلب "مصر كلها"
+    if city in ["مصر", "egypt", "الجمهورية", "جميع المحافظات", "كل مصر"]:
+        return [
+            "القاهرة", "الجيزة", "الإسكندرية", "الدقهلية", "الشرقية", 
+            "المنوفية", "الغربية", "البحيرة", "كفر الشيخ", "دمياط", 
+            "بورسعيد", "الإسماعيلية", "السويس", "المنيا", "أسيوط", 
+            "سوهاج", "قنا", "الأقصر", "أسوان", "بني سويف"
+        ]
+
+    # ب: لو العميل كتب مدن متعددة (القاهرة, طنطا)
+    if "," in city or "،" in city:
+        clean_city = city.replace("،", ",")
+        return [c.strip() for c in clean_city.split(",") if c.strip()]
+
+    # ج: تقسيم المدن الكبرى لزيادة الكثافة
     if "القاهرة" in city:
-        return ["المعادي", "التجمع الخامس", "مدينة نصر", "مصر الجديدة", "الزمالك", "وسط البلد", "حدائق القبة", "شبرا"]
+        return ["المعادي", "التجمع الخامس", "مدينة نصر", "مصر الجديدة", "الزمالك", "وسط البلد", "شبرا", "حدائق القبة", "المقطم"]
     if "الجيزة" in city:
-        return ["المهندسين", "الدقي", "6 أكتوبر", "الشيخ زايد", "الهرم", "فيصل"]
+        return ["المهندسين", "الدقي", "6 أكتوبر", "الشيخ زايد", "الهرم", "فيصل", "إمbaba"]
     if "الإسكندرية" in city:
-        return ["سموحة", "ميامي", "المنتزه", "سيدي جابر", "العجمي"]
-    try:
-        # محاولة ذكية لباقي المدن
-        return [city, f"مركز {city}", f"قرى {city}"]
-    except: return [city]
-
-# --- 3. العاكس الذكي (Reverse Engineer) ---
-def reverse_engineer_intent(user_sentence):
-    print(f"🧠 Analyzing: {user_sentence}")
-    # لو المستخدم كاتب "مطلوب" أصلاً، مش محتاجين نعكس
-    if "مطلوب" in user_sentence or "أبحث" in user_sentence:
-        return [user_sentence]
+        return ["سموحة", "ميامي", "المنتزه", "سيدي جابر", "العجمي", "محطة الرمل"]
         
-    prompt = f"""
-    المستخدم يقول: "{user_sentence}".
-    حول هذه الجملة إلى ما يكتبه "الزبون" الذي يبحث عن هذه الخدمة.
-    أعطني 3 جمل بحثية بصيغة "مطلوب" أو "أبحث عن" أو وصف مشكلة.
-    الرد قائمة مفصولة بفاصلة فقط.
-    """
-    try:
-        res = llm.invoke(prompt).content
-        keywords = [k.strip() for k in res.split(',') if k.strip()]
-        print(f"💡 Converted to: {keywords}")
-        return keywords
-    except: return [user_sentence]
+    # د: لو مدينة عادية (زي طنطا أو المنصورة) رجعها زي ما هي
+    return [city]
 
-# --- 4. تقييم الجودة ---
+# --- 3. تقييم الجودة (The Judge) ---
 def judge_lead(text):
     text = text.lower()
-    if any(x in text for x in ["مطلوب", "شراء", "كاش", "buy", "urgent", "محتاج"]): return "Excellent 🔥"
+    # كلمات القوة
+    if any(x in text for x in ["مطلوب", "شراء", "كاش", "buy", "urgent", "محتاج", "عايز"]): return "Excellent 🔥"
     if any(x in text for x in ["سعر", "تفاصيل", "price", "details", "بكام"]): return "Very Good ⭐"
-    if any(x in text for x in ["للبيع", "sale", "offer"]): return "Competitor ❌"
+    # كلمات المنافسين
+    if any(x in text for x in ["للبيع", "sale", "offer", "متاح"]): return "Competitor ❌"
     return "Good ✅"
 
-# --- 5. الحفظ في الذاكرة ---
+# --- 4. الحفظ في الخزنة ---
 def save_lead(phone, email, keyword, link, quality):
-    data = {"source": f"V18: {keyword}", "status": "NEW", "notes": f"Link: {link}", "quality": quality}
+    data = {"source": f"Hunter: {keyword}", "status": "NEW", "notes": f"Link: {link}", "quality": quality}
     
+    saved = False
+    # أولوية للموبايل
     if phone:
         data["phone_number"] = phone
         if email: data["email"] = email
         try:
             supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-            print(f"   ✅ SAVED: {phone} ({quality})")
-            return True
+            print(f"   ✅ SAVED PHONE: {phone}")
+            saved = True
         except: pass
+    # ثم الإيميل
     elif email:
         data["phone_number"] = f"email_{email}"
         data["email"] = email
@@ -106,82 +106,79 @@ def save_lead(phone, email, keyword, link, quality):
         try:
             supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
             print(f"   📧 SAVED EMAIL: {email}")
-            return True
+            saved = True
         except: pass
-    return False
+    return saved
 
-# --- 6. المحرك الرئيسي (The Core) ---
-def run_hydra_process(raw_intent: str, main_city: str, time_filter: str):
+# --- 5. المحرك الرئيسي (The Core) ---
+def run_hydra_process(intent: str, main_city: str, time_filter: str):
     if not SERPER_KEYS: 
-        print("❌ NO KEYS!")
+        print("❌ CRITICAL: NO KEYS FOUND!")
         return
     
-    # أ: عكس النية (فهم لغة الزبون)
-    target_keywords = reverse_engineer_intent(raw_intent)
-    
-    # ب: تقسيم المدينة
+    # تقسيم المنطقة
     sub_cities = get_sub_locations(main_city)
-    
-    print(f"🌍 Full Scope: {len(target_keywords)} keywords x {len(sub_cities)} areas")
+    print(f"🌍 Targeting Map: {sub_cities}")
     
     total_found = 0
 
     for area in sub_cities:
-        for intent in target_keywords:
-            # ج: مصادر البحث المتعددة
-            queries = [
-                f'site:facebook.com "{intent}" "{area}" "010"',
-                f'site:olx.com.eg "{intent}" "{area}" "010"',
-                f'"{intent}" "{area}" "010" -site:youtube.com'
-            ]
-            
-            for q in queries:
-                # د: الحفر العميق (Pagination - 3 صفحات)
-                for start_page in range(0, 30, 10):
-                    api_key = get_active_key()
-                    if not api_key: break
+        # معادلات البحث (تشمل فيسبوك، أوليكس، والبحث العام)
+        queries = [
+            f'site:facebook.com {intent} {area} 010',
+            f'site:olx.com.eg {intent} {area} 010',
+            f'"{intent}" {area} "010" -site:youtube.com'
+        ]
+        
+        for q in queries:
+            # الحفر العميق (أول 4 صفحات)
+            for start_page in range(0, 40, 10):
+                api_key = get_active_key()
+                if not api_key: break
+                
+                # إعداد الطلب (بدون قيود صارمة عشان نجيب نتايج)
+                payload = json.dumps({
+                    "q": q, "start": start_page, "num": 20, "tbs": time_filter
+                })
+                headers = {'X-API-KEY': api_key, 'Content-Type': 'application/json'}
+                
+                try:
+                    print(f"🚀 Scanning: {q} (Page {int(start_page/10)+1})")
+                    response = requests.post("https://google.serper.dev/search", headers=headers, data=payload)
+                    results = response.json().get("organic", [])
                     
-                    # هـ: الفلتر الزمني (tbs)
-                    payload = json.dumps({
-                        "q": q, "start": start_page, "num": 20, "tbs": time_filter
-                    })
-                    headers = {'X-API-KEY': api_key, 'Content-Type': 'application/json'}
-                    
-                    try:
-                        response = requests.post("https://google.serper.dev/search", headers=headers, data=payload)
-                        results = response.json().get("organic", [])
+                    if not results: break # الصفحة فاضية، اقلب
+
+                    for res in results:
+                        snippet = str(res.get('title', '')) + " " + str(res.get('snippet', ''))
+                        quality = judge_lead(snippet)
                         
-                        if not results: break 
+                        if quality == "Competitor ❌": continue 
 
-                        for res in results:
-                            snippet = str(res.get('title', '')) + " " + str(res.get('snippet', ''))
-                            quality = judge_lead(snippet)
-                            
-                            if quality == "Competitor ❌": continue # تجاهل المنافسين
+                        # استخراج الأرقام (أي صيغة)
+                        phones = re.findall(r'(01[0125][0-9 \-]{8,15})', snippet)
+                        for raw in phones:
+                            clean = raw.replace(" ", "").replace("-", "")
+                            if len(clean) == 11:
+                                if save_lead(clean, None, intent, res.get('link'), quality):
+                                    total_found += 1
 
-                            phones = re.findall(r'(01[0125][0-9 \-]{8,15})', snippet)
-                            for raw in phones:
-                                clean = raw.replace(" ", "").replace("-", "")
-                                if len(clean) == 11:
-                                    if save_lead(clean, None, intent, res.get('link'), quality):
-                                        total_found += 1
-
-                            emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', snippet)
-                            for mail in emails:
-                                save_lead(None, mail, intent, res.get('link'), quality)
+                        # استخراج الإيميلات
+                        emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', snippet)
+                        for mail in emails:
+                            save_lead(None, mail, intent, res.get('link'), quality)
                                 
-                    except Exception as e:
-                        print(f"   ⚠️ Err: {e}")
+                except Exception as e:
+                    print(f"   ⚠️ Error: {e}")
 
-    print(f"🏁 Finished. Total: {total_found}")
+    print(f"🏁 Empire Hunt Finished. Total Saved: {total_found}")
 
 # --- Endpoints ---
 @app.get("/")
-def home(): return {"status": "Brain V18 Ultimate"}
+def home(): return {"status": "Brain V19 Map Master"}
 
 @app.post("/start_hunt")
 async def start_hunt(req: HuntRequest, background_tasks: BackgroundTasks):
-    # تمرير كل الباراميترز (الجملة، المدينة، الزمن)
     background_tasks.add_task(run_hydra_process, req.intent_sentence, req.city, req.time_filter)
     return {"status": "Started"}
 
@@ -195,3 +192,4 @@ async def chat(req: ChatRequest):
     res = llm.invoke(f"بائع مصري. المنتج: {info}. العميل: {req.message}. رد باختصار:").content
     supabase.table("interactions").insert({"phone_number": req.phone_number, "user_query": req.message, "ai_response": res}).execute()
     return {"response": res}
+
