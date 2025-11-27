@@ -2,72 +2,47 @@ import streamlit as st
 import pandas as pd
 import requests
 from supabase import create_client
+from io import BytesIO
 import time
+import datetime
+from streamlit_option_menu import option_menu
 
 # --- 1. إعداد الصفحة ---
-st.set_page_config(page_title="Agency Hub", layout="wide", page_icon="🌐")
+st.set_page_config(page_title="Growth System", layout="wide", page_icon="📈")
 
-# --- 2. التصميم (CSS - Mobile Friendly & RTL) ---
+# --- 2. التصميم (Mobile Friendly + Professional) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Cairo', sans-serif;
-    }
-    
-    /* ضبط الاتجاه يمين */
-    .block-container {
-        direction: rtl;
-        text-align: right;
-    }
-    
-    /* إصلاح القائمة الجانبية */
-    [data-testid="stSidebar"] {
-        direction: rtl;
-        text-align: right;
-    }
-    
-    /* تحسين الكروت */
-    [data-testid="stMetric"] {
-        background-color: #FFFFFF;
-        border: 1px solid #E5E7EB;
-        border-radius: 10px;
-        padding: 10px;
-        direction: rtl;
-        text-align: right;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    
-    /* إخفاء الفوتر */
+    html, body, [class*="css"] { font-family: 'Cairo', sans-serif; }
+    .block-container { direction: rtl; text-align: right; }
+    [data-testid="stSidebar"] { direction: rtl; text-align: right; }
+    /* إظهار السهم */
+    [data-testid="stHeader"] { background-color: rgba(255, 255, 255, 0); z-index: 99999; }
+    button[kind="header"] { color: #2563EB !important; }
+    /* تنسيق الكروت */
+    [data-testid="stMetric"] { background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 10px; direction: rtl; text-align: right; }
     footer {visibility: hidden;}
-    
-    /* تلوين الهيدر ليكون واضح */
-    header {background-color: white !important;}
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. الاتصال بالسحابة ---
+# --- 3. الاتصال ---
 try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
     API_URL = st.secrets["API_URL"]
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-except:
-    st.error("⚠️ جاري الاتصال بالسيرفر...")
-    st.stop()
+except: st.stop()
 
-# --- 4. نظام الدخول ---
+# --- 4. الدخول ---
 if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
-    st.session_state['user_role'] = ''
-    st.session_state['username'] = ''
+    st.session_state.update({'logged_in': False, 'user': '', 'role': '', 'perms': {}})
 
 def login_screen():
     st.markdown("<br><br>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 10, 1])
     with c2:
-        st.info("👋 أهلاً بك في نظام الوكالة")
+        st.info("👋 مرحباً بك في النظام")
         with st.form("login"):
             u = st.text_input("اسم المستخدم")
             p = st.text_input("كلمة المرور", type="password")
@@ -75,185 +50,200 @@ def login_screen():
                 try:
                     res = supabase.table("users").select("*").eq("username", u).eq("password", p).execute()
                     if res.data and res.data[0]['is_active']:
+                        user_data = res.data[0]
                         st.session_state['logged_in'] = True
-                        st.session_state['username'] = u
-                        st.session_state['user_role'] = res.data[0]['role']
+                        st.session_state['user'] = u
+                        st.session_state['role'] = user_data['role']
+                        # حفظ الصلاحيات
+                        st.session_state['perms'] = {
+                            'hunt': user_data.get('can_hunt', True),
+                            'camp': user_data.get('can_campaign', True),
+                            'share': user_data.get('can_share', True)
+                        }
                         st.rerun()
-                    else: st.error("بيانات خطأ أو حساب موقوف.")
-                except: st.error("خطأ في الاتصال.")
+                    else: st.error("بيانات خطأ")
+                except: st.error("خطأ اتصال")
 
-# --- 5. التطبيق الرئيسي ---
+# --- 5. التطبيق ---
 def main_app():
-    user = st.session_state['username']
-    role = st.session_state['user_role']
+    user = st.session_state['user']
+    role = st.session_state['role']
+    perms = st.session_state['perms']
     
-    # القائمة الجانبية
     with st.sidebar:
-        st.write(f"👤 **{user}** ({role})")
+        st.write(f"👤 **{user}**")
+        
+        opts = ["الرئيسية", "قاعدة البيانات"]
+        icons = ["house", "table"]
+        
+        if perms['hunt']: 
+            opts.append("الصياد الذكي")
+            icons.append("search")
+        if perms['camp']:
+            opts.append("الحملات")
+            icons.append("send")
+        
+        opts.append("إضافة يدوية")
+        icons.append("plus-circle")
+        
+        if role == 'admin':
+            opts.append("الإدارة والتوزيع")
+            icons.append("gear")
+            
+        selected = option_menu("القائمة", opts, icons=icons, default_index=0)
+        
+        st.divider()
         if st.button("خروج", use_container_width=True):
             st.session_state['logged_in'] = False
             st.rerun()
-        st.divider()
-        
-        # صفحات التطبيق
-        pages = ["الرئيسية", "بحث عن عملاء", "سجل الداتا (CRM)", "الحملات"]
-        if role == 'admin': pages.append("👮‍♂️ توزيع الداتا & إدارة")
-        
-        menu = st.sidebar.radio("القائمة", pages)
 
     # === 1. الرئيسية ===
-    if menu == "الرئيسية":
-        st.subheader(f"مرحباً {user} ☀️")
-        
-        # إحصائيات اليوزر
-        leads = supabase.table("leads").select("*").eq("user_id", user).execute().data
-        df = pd.DataFrame(leads) if leads else pd.DataFrame()
+    if selected == "الرئيسية":
+        st.subheader("لوحة المعلومات")
+        data = supabase.table("leads").select("*").eq("user_id", user).execute().data
+        df = pd.DataFrame(data) if data else pd.DataFrame()
         
         c1, c2, c3 = st.columns(3)
-        count = len(df) if not df.empty else 0
-        hot = len(df[df['quality'].str.contains('Excellent', na=False)]) if not df.empty else 0
-        sold = len(df[df['feedback_status'] == 'تم البيع']) if not df.empty else 0
-        
-        c1.metric("إجمالي العملاء", count)
-        c2.metric("فرص ذهبية 🔥", hot)
-        c3.metric("مبيعات ناجحة 💰", sold)
+        c1.metric("إجمالي العملاء", len(df))
+        hot = len(df[df['quality'].str.contains('Excellent|Target', na=False)]) if not df.empty else 0
+        c2.metric("عملاء لقطة 🔥", hot)
+        c3.metric("من القناص", len(df[df['source'].str.contains('Sniper', na=False)]) if not df.empty else 0)
 
-    # === 2. الصياد (المربوط بالحملة) ===
-    elif menu == "بحث عن عملاء":
-        st.header("🔍 الصياد الموجه")
+    # === 2. قاعدة البيانات (Data) ===
+    elif selected == "قاعدة البيانات":
+        st.subheader("🗂️ إدارة الداتا")
         
-        # جلب الحملة النشطة للربط
-        active_camp = supabase.table("campaigns").select("id, campaign_name").eq("is_active", True).execute().data
-        campaign_id = active_camp[0]['id'] if active_camp else None
+        c1, c2, c3 = st.columns(3)
+        status_filter = c1.selectbox("الحالة", ["الكل", "جديد", "تم التواصل"])
+        source_filter = c2.selectbox("المصدر", ["الكل", "صيد", "قنص", "يدوي"])
+        if c3.button("تحديث 🔄", use_container_width=True): st.rerun()
         
-        if active_camp:
-            st.success(f"✅ سيتم ربط العملاء بحملة: **{active_camp[0]['campaign_name']}**")
-        else:
-            st.warning("⚠️ لا توجد حملة نشطة! الصيد سيكون عام.")
-
-        with st.form("hunt"):
-            intent = st.text_input("عايز زبائن بتدور على إيه؟")
-            city = st.text_input("المنطقة / المدينة", "القاهرة")
-            time_opt = st.selectbox("الوقت", ["أي وقت", "آخر شهر", "آخر 24 ساعة"])
-            time_map = {"أي وقت": "qdr:y", "آخر شهر": "qdr:m", "آخر 24 ساعة": "qdr:d"}
-            
-            if st.form_submit_button("ابدأ البحث 🚀", use_container_width=True):
-                try:
-                    payload = {
-                        "intent_sentence": intent, 
-                        "city": city, 
-                        "time_filter": time_map.get(time_opt, "qdr:m"), 
-                        "user_id": user,
-                        "campaign_id": campaign_id
-                    }
-                    requests.post(f"{API_URL}/start_hunt", json=payload)
-                    st.success("تم الإطلاق! النتائج ستظهر في السجل.")
-                except: st.error("خطأ اتصال.")
-
-    # === 3. سجل الداتا (CRM كامل) ===
-    elif menu == "سجل الداتا (CRM)":
-        st.header("📋 إدارة العملاء")
+        query = supabase.table("leads").select("*").eq("user_id", user).order("created_at", desc=True)
+        if status_filter == "جديد": query = query.eq("status", "NEW")
+        elif status_filter == "تم التواصل": query = query.eq("status", "CONTACTED")
+        if source_filter == "صيد": query = query.ilike("source", "%Hunter%")
+        elif source_filter == "قنص": query = query.ilike("source", "%Sniper%")
         
-        c1, c2 = st.columns([3, 1])
-        with c2:
-            if st.button("تحديث 🔄", use_container_width=True): st.rerun()
-            
-        # جلب داتا اليوزر فقط
-        leads = supabase.table("leads").select("*").eq("user_id", user).order("created_at", desc=True).execute().data
+        leads = query.execute().data
         
         if leads:
             df = pd.DataFrame(leads)
             
-            # عرض العملاء كـ كروت قابلة للتعديل (Expander)
-            for lead in leads:
-                # أيقونة حسب الجودة
-                icon = "🔥" if "Excellent" in str(lead['quality']) else "👤"
-                status_label = lead['feedback_status'] if lead['feedback_status'] else "جديد"
-                
-                with st.expander(f"{icon} {lead['phone_number']} | {status_label}"):
-                    ec1, ec2 = st.columns(2)
-                    with ec1:
-                        # تعديل الحالة
-                        new_stat = st.selectbox(
-                            "تحديث الحالة", 
-                            ["جديد", "مهتم", "تم البيع 💰", "لم يرد", "غير مهتم"], 
-                            index=0, 
-                            key=f"st_{lead['id']}"
-                        )
-                    with ec2:
-                        # حفظ التعديل
-                        if st.button("حفظ الحالة", key=f"btn_{lead['id']}"):
-                            supabase.table("leads").update({"feedback_status": new_stat}).eq("id", lead['id']).execute()
-                            st.success("تم!")
-                            st.rerun()
-                    
-                    # تفاصيل إضافية
-                    st.caption(f"المصدر: {lead['source']}")
-                    if lead['notes'] and "Link" in lead['notes']:
-                        link = lead['notes'].replace('Link: ', '')
-                        st.markdown(f"[🔗 فتح المصدر]({link})")
-                        
-        else:
-            st.info("ليس لديك داتا حالياً.")
+            # زرار التحميل
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False)
+            st.download_button("📥 تحميل Excel", output.getvalue(), f"leads_{user}.xlsx", "application/vnd.ms-excel")
+            
+            df['Link'] = df['notes'].str.replace('Link: ', '', regex=False)
+            st.dataframe(
+                df[['quality', 'phone_number', 'email', 'source', 'Link']],
+                column_config={"Link": st.column_config.LinkColumn("المصدر", display_text="فتح")},
+                use_container_width=True
+            )
+            
+            with st.expander("🗑️ حذف"):
+                d = st.text_input("رقم للحذف")
+                if st.button("مسح"):
+                    supabase.table("leads").delete().eq("phone_number", d).execute()
+                    st.rerun()
+        else: st.info("لا توجد بيانات.")
+
+    # === 3. الصياد (Hunter + Sniper) ===
+    elif selected == "الصياد الذكي":
+        st.subheader("🎣 محرك الصيد")
+        
+        mode = st.radio("الوضع:", ["🌊 صيد عام (كلمات)", "🏹 قناص (منافسين)"], horizontal=True)
+        
+        with st.form("hunt"):
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                if "قناص" in mode:
+                    intent = st.text_input("اسم المنافس / البراند", placeholder="مثال: فودافون / مدينتي")
+                else:
+                    intent = st.text_input("هدفك (بصيغة الزبون)", placeholder="مثال: مطلوب شقة / عايز استثمر")
+            with c2:
+                city = st.text_input("المنطقة", "القاهرة")
+            
+            time_opt = st.selectbox("الزمن", ["أي وقت", "آخر شهر", "آخر 24 ساعة"])
+            time_map = {"أي وقت": "qdr:y", "آخر شهر": "qdr:m", "آخر 24 ساعة": "qdr:d"}
+            
+            if st.form_submit_button("إطلاق 🚀", use_container_width=True):
+                try:
+                    search_mode = "sniper" if "قناص" in mode else "general"
+                    payload = {
+                        "intent_sentence": intent, "city": city, 
+                        "time_filter": time_map[time_opt], 
+                        "user_id": user,
+                        "mode": search_mode
+                    }
+                    requests.post(f"{API_URL}/start_hunt", json=payload)
+                    st.success("تم الإطلاق! تابع صفحة الداتا.")
+                except: st.error("خطأ اتصال")
 
     # === 4. الحملات ===
-    elif menu == "الحملات":
-        st.header("📦 إعداد العرض")
-        with st.form("camp"):
-            name = st.text_input("اسم الحملة")
-            desc = st.text_area("نص الرسالة (للـ AI والواتساب)")
-            media = st.text_input("رابط الصورة")
-            if st.form_submit_button("تفعيل الحملة", use_container_width=True):
+    elif selected == "الحملات":
+        st.subheader("📩 رسائل الواتساب")
+        with st.form("c"):
+            n = st.text_input("اسم العرض")
+            d = st.text_area("النص")
+            if st.form_submit_button("حفظ"):
                 supabase.table("campaigns").update({"is_active": False}).eq("is_active", True).execute()
-                supabase.table("campaigns").insert({
-                    "campaign_name": name, "product_description": desc, "media_url": media, "is_active": True
-                }).execute()
-                st.success("تم التفعيل.")
-                st.rerun()
+                supabase.table("campaigns").insert({"campaign_name": n, "product_description": d, "is_active": True}).execute()
+                st.success("تم")
 
-    # === 5. الأدمن (توزيع الداتا) ===
-    elif menu == "👮‍♂️ توزيع الداتا & إدارة" and role == 'admin':
-        st.header("مخزن التوزيع")
+    # === 5. إضافة يدوية ===
+    elif selected == "إضافة يدوية":
+        st.subheader("📥 إدخال داتا")
+        tab1, tab2 = st.tabs(["يدوي", "Excel"])
+        with tab1:
+            with st.form("m"):
+                ph = st.text_input("الرقم")
+                nt = st.text_input("الاسم")
+                if st.form_submit_button("حفظ"):
+                    supabase.table("leads").insert({"phone_number": ph, "notes": nt, "source": "Manual", "user_id": user, "status": "NEW"}).execute()
+                    st.success("تم")
+        with tab2:
+            f = st.file_uploader("ملف Excel", type=['xlsx'])
+            if f and st.button("رفع"):
+                try:
+                    dd = pd.read_excel(f)
+                    for i, r in dd.iterrows():
+                        supabase.table("leads").insert({"phone_number": str(r['phone']), "source": "Excel", "user_id": user, "status": "NEW"}).execute()
+                    st.success("تم")
+                except: st.error("تأكد من عمود phone")
+
+    # === 6. الإدارة (Admin) ===
+    elif selected == "الإدارة والتوزيع" and role == 'admin':
+        st.subheader("👮‍♂️ التحكم المركزي")
         
-        # عدد الداتا عند الأدمن
-        admin_count = supabase.table("leads").select("*", count="exact").eq("user_id", "admin").execute().count
-        st.info(f"متاح في المخزن الرئيسي: {admin_count} عميل")
+        tab_a, tab_b = st.tabs(["توزيع الداتا", "المستخدمين"])
         
-        st.write("---")
-        
-        # أداة التوزيع
-        st.subheader("توزيع أرقام على عميل")
-        users_res = supabase.table("users").select("username").neq("username", "admin").execute().data
-        
-        if users_res:
-            c1, c2, c3 = st.columns(3)
-            target = c1.selectbox("اختر العميل", [u['username'] for u in users_res])
+        with tab_a:
+            admin_leads = supabase.table("leads").select("*", count="exact").eq("user_id", "admin").execute().count
+            st.metric("مخزون الأدمن", admin_leads)
+            
+            c1, c2 = st.columns(2)
+            users_res = supabase.table("users").select("username").neq("username", "admin").execute().data
+            target = c1.selectbox("إرسال إلى", [u['username'] for u in users_res])
             amount = c2.number_input("العدد", 1, 1000, 50)
             
-            if c3.button("نقل الداتا", use_container_width=True):
-                # نقل داتا من admin لليوزر المختار
+            if st.button("تحويل داتا"):
                 leads_to_move = supabase.table("leads").select("id").eq("user_id", "admin").limit(amount).execute().data
                 if leads_to_move:
                     for l in leads_to_move:
                         supabase.table("leads").update({"user_id": target}).eq("id", l['id']).execute()
-                    st.success(f"تم نقل {len(leads_to_move)} عميل لـ {target}")
+                    st.success(f"تم نقل {len(leads_to_move)} عميل")
                     time.sleep(1)
                     st.rerun()
-                else:
-                    st.error("المخزن فارغ!")
         
-        st.write("---")
-        
-        # إضافة مستخدم جديد
-        with st.expander("➕ إنشاء حساب جديد"):
-            with st.form("new_user"):
-                u = st.text_input("Username")
-                p = st.text_input("Password")
-                if st.form_submit_button("Create"):
-                    try:
-                        supabase.table("users").insert({"username": u, "password": p, "role": "client"}).execute()
-                        st.success("تم الإنشاء")
-                    except: st.error("موجود بالفعل")
+        with tab_b:
+            with st.form("nu"):
+                u = st.text_input("يوزر")
+                p = st.text_input("باس")
+                if st.form_submit_button("إضافة عميل"):
+                    supabase.table("users").insert({"username": u, "password": p, "role": "client"}).execute()
+                    st.success("تم")
 
 if st.session_state['logged_in']: main_app()
 else: login_screen()
