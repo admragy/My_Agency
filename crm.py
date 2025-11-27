@@ -3,52 +3,51 @@ import pandas as pd
 import requests
 from supabase import create_client
 import time
+import datetime
 
 # --- 1. إعداد الصفحة ---
 st.set_page_config(page_title="Growth System", layout="wide", page_icon="📈")
 
-# --- 2. تصميم ذكي للموبايل (Mobile-First CSS) ---
+# --- 2. التصميم (CSS) - النسخة المصلحة للموبايل ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
     
-    /* تعميم الخط */
     html, body, [class*="css"] {
         font-family: 'Cairo', sans-serif;
     }
     
-    /* ضبط الاتجاه للعربي داخل المحتوى فقط وليس الهيكل */
+    /* ضبط الاتجاه */
     .block-container {
         direction: rtl;
         text-align: right;
     }
     
-    /* إصلاح القائمة الجانبية للموبايل */
+    /* إصلاح القائمة الجانبية */
     [data-testid="stSidebar"] {
         direction: rtl;
         text-align: right;
     }
     
-    /* تنسيق الكروت (Metrics) لتظهر بشكل سليم */
+    /* تحسين شكل الهيدر (عشان السهم يظهر) */
+    [data-testid="stHeader"] {
+        background-color: rgba(255, 255, 255, 0);
+    }
+
+    /* تحسين الكروت */
     [data-testid="stMetric"] {
         background-color: #FFFFFF;
         border: 1px solid #E5E7EB;
         border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        text-align: right;
+        padding: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         direction: rtl;
+        text-align: right;
     }
     
-    /* الأرقام تظهر بشكل صحيح */
-    [data-testid="stMetricValue"] {
-        direction: ltr; /* عشان الرقم يظهر صح */
-        text-align: right;
-    }
-
-    /* إخفاء العناصر الزائدة */
-    header {visibility: hidden;}
+    /* إخفاء الفوتر فقط */
     footer {visibility: hidden;}
+    
     </style>
     """, unsafe_allow_html=True)
 
@@ -59,6 +58,7 @@ try:
     API_URL = st.secrets["API_URL"]
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 except:
+    st.error("جاري الاتصال بالسيرفر...")
     st.stop()
 
 # --- 4. الدخول ---
@@ -76,13 +76,15 @@ def login_screen():
             u = st.text_input("اسم المستخدم")
             p = st.text_input("كلمة المرور", type="password")
             if st.form_submit_button("دخول", use_container_width=True):
-                res = supabase.table("users").select("*").eq("username", u).eq("password", p).execute()
-                if res.data and res.data[0]['is_active']:
-                    st.session_state['logged_in'] = True
-                    st.session_state['username'] = u
-                    st.session_state['user_role'] = res.data[0]['role']
-                    st.rerun()
-                else: st.error("بيانات خطأ")
+                try:
+                    res = supabase.table("users").select("*").eq("username", u).eq("password", p).execute()
+                    if res.data and res.data[0]['is_active']:
+                        st.session_state['logged_in'] = True
+                        st.session_state['username'] = u
+                        st.session_state['user_role'] = res.data[0]['role']
+                        st.rerun()
+                    else: st.error("بيانات خطأ")
+                except: st.error("خطأ اتصال")
 
 # --- 5. التطبيق ---
 def main_app():
@@ -100,18 +102,18 @@ def main_app():
             st.session_state['logged_in'] = False
             st.rerun()
 
-    # المحتوى (نفس المنطق السابق مع تحسين العرض)
+    # === 1. الرئيسية ===
     if menu == "الرئيسية":
         st.subheader(f"مرحباً {user} ☀️")
         data = supabase.table("leads").select("*").eq("user_id", user).execute().data
         df = pd.DataFrame(data) if data else pd.DataFrame()
         
-        # كروت الأرقام (تظهر تحت بعض في الموبايل وجنب بعض في اللابتوب)
         c1, c2 = st.columns(2)
         c1.metric("العملاء", len(df))
         hot = len(df[df['quality'].str.contains('Excellent', na=False)]) if not df.empty else 0
         c2.metric("مهتمين 🔥", hot)
 
+    # === 2. الصياد ===
     elif menu == "بحث عن عملاء":
         st.header("🔍 الصياد")
         with st.form("hunt"):
@@ -126,24 +128,34 @@ def main_app():
                     st.success("تم الإطلاق!")
                 except: st.error("خطأ اتصال")
 
+    # === 3. السجل (مع روابط قابلة للضغط) ===
     elif menu == "سجل الداتا":
         st.header("📋 السجل")
         if st.button("تحديث 🔄", use_container_width=True): st.rerun()
         leads = supabase.table("leads").select("*").eq("user_id", user).order("created_at", desc=True).execute().data
         if leads:
             df = pd.DataFrame(leads)
+            # تنظيف الرابط
             df['رابط'] = df['notes'].str.replace('Link: ', '', regex=False)
+            
+            # عرض الجدول
             st.dataframe(
-                df[['quality', 'phone_number', 'رابط']],
-                column_config={"رابط": st.column_config.LinkColumn("المصدر", display_text="فتح")},
+                df[['quality', 'phone_number', 'email', 'رابط']],
+                column_config={
+                    "رابط": st.column_config.LinkColumn("المصدر", display_text="فتح الرابط 🔗"),
+                    "phone_number": "رقم الموبايل",
+                    "email": "الإيميل"
+                },
                 use_container_width=True
             )
+            # الحذف
             with st.expander("حذف رقم"):
                 d = st.text_input("الرقم")
                 if st.button("مسح"):
                     supabase.table("leads").delete().eq("phone_number", d).execute()
                     st.rerun()
 
+    # === 4. الحملات ===
     elif menu == "الحملات":
         st.header("📩 الرسائل")
         with st.form("camp"):
@@ -154,6 +166,7 @@ def main_app():
                 supabase.table("campaigns").insert({"campaign_name": n, "product_description": d, "is_active": True}).execute()
                 st.success("تم")
 
+    # === 5. الأدمن ===
     elif menu == "إدارة المستخدمين" and role == 'admin':
         st.header("المستخدمين")
         with st.form("u"):
