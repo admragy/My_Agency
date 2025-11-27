@@ -1,6 +1,7 @@
 [theme]
-primaryColor = "#2563EB"
-backgroundColor = "#F8F9FB"
-secondaryBackgroundColor = "#FFFFFF"
-textColor = "#1F2937"
-font = "sans serif"
+base = "light"               # يجبر النظام على الوضع النهاري (أبيض)
+primaryColor = "#2563EB"     # أزرق ملكي (لون الثقة)
+backgroundColor = "#F8F9FB"  # رمادي فاتح جداً (مريح للعين)
+secondaryBackgroundColor = "#FFFFFF" # أبيض ناصع للكروت والقوائم
+textColor = "#1F2937"        # أسود رمادي (للقراءة المريحة)
+font = "sans serif"          # خط عصري
