@@ -4,184 +4,130 @@ import requests
 from supabase import create_client
 import time
 
-# --- 1. إعداد الصفحة ---
-st.set_page_config(page_title="Agency Login", layout="wide", page_icon="🔒")
+# --- إعداد الصفحة ---
+st.set_page_config(page_title="Growth System", layout="wide", page_icon="📈")
 
-# --- 2. الاتصال بالسحابة ---
+# --- CSS (التصميم) ---
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+    html, body, [class*="css"] { font-family: 'Cairo', sans-serif; direction: rtl; text-align: right; }
+    header {visibility: hidden;} footer {visibility: hidden;}
+    .stMetric { background-color: white; border: 1px solid #ddd; border-radius: 10px; padding: 10px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- الاتصال ---
 try:
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+    supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
     API_URL = st.secrets["API_URL"]
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-except:
-    st.error("⚠️ خطأ في الاتصال بالسيرفر.")
-    st.stop()
+except: st.stop()
 
-# --- 3. نظام تسجيل الدخول (Session State) ---
+# --- الدخول ---
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
     st.session_state['user_role'] = ''
     st.session_state['username'] = ''
 
 def login_screen():
-    st.markdown("<h1 style='text-align: center;'>🔐 بوابة الوكالة الذكية</h1>", unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        with st.form("login_form"):
-            username = st.text_input("اسم المستخدم")
-            password = st.text_input("كلمة المرور", type="password")
-            submit = st.form_submit_button("تسجيل الدخول", use_container_width=True)
-            
-            if submit:
-                try:
-                    response = supabase.table("users").select("*").eq("username", username).eq("password", password).execute()
-                    user = response.data
-                    
-                    if user:
-                        if user[0]['is_active']:
-                            st.session_state['logged_in'] = True
-                            st.session_state['user_role'] = user[0]['role']
-                            st.session_state['username'] = user[0]['username']
-                            st.success("تم الدخول بنجاح!")
-                            time.sleep(0.5)
-                            st.rerun()
-                        else:
-                            st.error("⛔ الحساب موقوف.")
-                    else:
-                        st.error("❌ بيانات خاطئة.")
-                except Exception as e:
-                    st.error(f"خطأ: {e}")
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        st.info("👋 أهلاً بك في النظام")
+        with st.form("login"):
+            u = st.text_input("اسم المستخدم")
+            p = st.text_input("كلمة المرور", type="password")
+            if st.form_submit_button("دخول", use_container_width=True):
+                res = supabase.table("users").select("*").eq("username", u).eq("password", p).execute()
+                if res.data and res.data[0]['is_active']:
+                    st.session_state['logged_in'] = True
+                    st.session_state['username'] = u
+                    st.session_state['user_role'] = res.data[0]['role']
+                    st.rerun()
+                else: st.error("بيانات خطأ")
 
-# --- 4. التطبيق الرئيسي (Main App) ---
+# --- التطبيق ---
 def main_app():
-    # الشريط الجانبي وزر الخروج
+    user = st.session_state['username']
+    role = st.session_state['user_role']
+    
     with st.sidebar:
-        st.write(f"👤 **{st.session_state['username']}** ({st.session_state['user_role']})")
-        if st.button("تسجيل الخروج"):
+        st.write(f"👤 **{user}**")
+        if st.button("خروج"):
             st.session_state['logged_in'] = False
             st.rerun()
-        st.markdown("---")
-
-    # تحديد القائمة حسب الصلاحية
-    if st.session_state['user_role'] == 'admin':
-        menu = st.sidebar.radio("القائمة", ["📊 الداتا والنتائج", "➕ إضافة عميل يدوي", "🕵️‍♂️ الصياد الذكي", "🚀 إدارة الحملات", "⚙️ الإعدادات", "👥 إدارة المستخدمين"])
-    else:
-        menu = st.sidebar.radio("القائمة", ["📊 الداتا والنتائج", "➕ إضافة عميل يدوي", "🕵️‍♂️ الصياد الذكي", "🚀 إدارة الحملات"])
-
-    # ==========================
-    # صفحة الداتا (شاملة الحذف)
-    # ==========================
-    if menu == "📊 الداتا والنتائج":
-        st.header("💎 كنز العملاء")
+        st.divider()
         
-        # زر التحديث
-        if st.button("تحديث الجدول 🔄"): st.rerun()
+        pages = ["الرئيسية", "بحث عن عملاء", "سجل الداتا", "الحملات"]
+        if role == 'admin': pages.append("إدارة المستخدمين")
+        menu = st.sidebar.radio("القائمة", pages)
 
-        # أدوات الحذف (للأدمن فقط أو للكل حسب رغبتك)
-        with st.expander("🗑️ أدوات الحذف"):
-            c1, c2 = st.columns(2)
-            with c1:
-                del_phone = st.text_input("مسح رقم محدد:")
-                if st.button("مسح الرقم"):
-                    supabase.table("leads").delete().eq("phone_number", del_phone).execute()
-                    st.success("تم المسح.")
-                    st.rerun()
-            with c2:
-                if st.button("💣 مسح كل الداتا"):
-                    supabase.table("leads").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
-                    st.warning("تم تصفير الخزنة.")
-                    st.rerun()
+    # 1. الرئيسية
+    if menu == "الرئيسية":
+        st.subheader(f"مرحباً {user}")
+        data = supabase.table("leads").select("*").eq("user_id", user).execute().data
+        df = pd.DataFrame(data) if data else pd.DataFrame()
+        c1, c2 = st.columns(2)
+        c1.metric("إجمالي العملاء", len(df))
+        hot = len(df[df['quality'].str.contains('Excellent', na=False)]) if not df.empty else 0
+        c2.metric("عملاء مهتمين 🔥", hot)
 
-        # عرض الجدول
-        response = supabase.table("leads").select("*").order("created_at", desc=True).execute()
-        leads = response.data
+    # 2. البحث (الصياد)
+    elif menu == "بحث عن عملاء":
+        st.header("🔍 البحث عن عملاء")
+        with st.form("hunt"):
+            intent = st.text_input("عايز زبائن بتدور على إيه؟")
+            city = st.text_input("المنطقة / المدينة")
+            time_opt = st.selectbox("الوقت", ["أي وقت", "آخر شهر", "آخر 24 ساعة"])
+            time_map = {"أي وقت": "qdr:y", "آخر شهر": "qdr:m", "آخر 24 ساعة": "qdr:d"}
+            
+            if st.form_submit_button("ابدأ البحث 🚀"):
+                try:
+                    payload = {"intent_sentence": intent, "city": city, "time_filter": time_map[time_opt], "user_id": user}
+                    requests.post(f"{API_URL}/start_hunt", json=payload)
+                    st.success("تم الإطلاق! تابع السجل.")
+                except: st.error("خطأ اتصال")
+
+    # 3. السجل
+    elif menu == "سجل الداتا":
+        st.header("📋 العملاء")
+        if st.button("تحديث"): st.rerun()
+        leads = supabase.table("leads").select("*").eq("user_id", user).order("created_at", desc=True).execute().data
         if leads:
             df = pd.DataFrame(leads)
-            
-            m1, m2 = st.columns(2)
-            m1.metric("العدد الكلي", len(df))
-            if 'quality' in df.columns:
-                excellent = len(df[df['quality'].str.contains('Excellent', na=False)])
-                m2.metric("🔥 عملاء لقطة", excellent)
-            
-            st.dataframe(df[['quality', 'phone_number', 'email', 'source', 'notes']], use_container_width=True)
-        else:
-            st.info("لا توجد بيانات.")
-
-    # ==========================
-    # صفحة الإضافة اليدوية
-    # ==========================
-    elif menu == "➕ إضافة عميل يدوي":
-        st.header("📝 تسجيل يدوي")
-        with st.form("manual"):
-            phone = st.text_input("رقم الموبايل")
-            notes = st.text_input("ملاحظات")
-            if st.form_submit_button("حفظ"):
-                supabase.table("leads").upsert({
-                    "phone_number": phone, "source": "Manual", "status": "NEW", "quality": "Manual", "notes": notes
-                }, on_conflict="phone_number").execute()
-                st.success("تم الحفظ!")
-
-    # ==========================
-    # صفحة الصياد الذكي
-    # ==========================
-    elif menu == "🕵️‍♂️ الصياد الذكي":
-        st.header("🎣 الصياد (V18)")
-        with st.form("hunt"):
-            intent = st.text_input("ماذا تريد؟ (مثال: مطلوب عقارات)")
-            city = st.text_input("المدينة", "القاهرة")
-            time_filter = st.selectbox("الفترة الزمنية", ["qdr:d (يوم)", "qdr:w (أسبوع)", "qdr:m (شهر)"])
-            
-            if st.form_submit_button("🚀 اطلق الصياد"):
-                try:
-                    payload = {"intent_sentence": intent, "city": city, "time_filter": time_filter.split()[0]}
-                    requests.post(f"{API_URL}/start_hunt", json=payload)
-                    st.success("تم الإطلاق! تابع صفحة الداتا.")
-                except: st.error("فشل الاتصال بالمخ.")
-
-    # ==========================
-    # صفحة الحملات
-    # ==========================
-    elif menu == "🚀 إدارة الحملات":
-        st.header("📦 إعداد الحملة")
-        current = supabase.table("campaigns").select("*").eq("is_active", True).execute().data
-        if current: st.info(f"الحملة الحالية: {current[0]['campaign_name']}")
-        
-        with st.form("camp"):
-            name = st.text_input("اسم الحملة")
-            desc = st.text_area("وصف المنتج")
-            media = st.text_input("رابط الصورة")
-            if st.form_submit_button("تفعيل"):
-                supabase.table("campaigns").update({"is_active": False}).eq("is_active", True).execute()
-                supabase.table("campaigns").insert({"campaign_name": name, "product_description": desc, "media_url": media, "is_active": True}).execute()
-                st.success("تم التفعيل.")
-                st.rerun()
-
-    # ==========================
-    # صفحة الإدارة (Admin Only)
-    # ==========================
-    elif menu == "👥 إدارة المستخدمين" and st.session_state['user_role'] == 'admin':
-        st.header("👮‍♂️ التحكم في الحسابات")
-        with st.form("new_user"):
-            new_u = st.text_input("يوزر جديد")
-            new_p = st.text_input("باسورد")
-            if st.form_submit_button("إنشاء"):
-                supabase.table("users").insert({"username": new_u, "password": new_p, "role": "client"}).execute()
-                st.success("تم الإنشاء.")
-                st.rerun()
-        
-        users = supabase.table("users").select("*").neq("username", "admin").execute().data
-        if users:
-            for u in users:
-                c1, c2 = st.columns([3, 1])
-                c1.write(f"👤 {u['username']} - {'✅ نشط' if u['is_active'] else '⛔ موقوف'}")
-                if c2.button("تغيير الحالة", key=u['id']):
-                    supabase.table("users").update({"is_active": not u['is_active']}).eq("id", u['id']).execute()
+            df['رابط'] = df['notes'].str.replace('Link: ', '', regex=False)
+            st.dataframe(
+                df[['quality', 'phone_number', 'email', 'رابط']],
+                column_config={"رابط": st.column_config.LinkColumn("المصدر", display_text="فتح")},
+                use_container_width=True
+            )
+            # أدوات الحذف
+            with st.expander("🗑️ حذف"):
+                del_ph = st.text_input("حذف رقم:")
+                if st.button("مسح"):
+                    supabase.table("leads").delete().eq("phone_number", del_ph).execute()
                     st.rerun()
 
-# --- 5. تشغيل النظام ---
-if st.session_state['logged_in']:
-    main_app()
-else:
-    login_screen()
+    # 4. الحملات
+    elif menu == "الحملات":
+        st.header("📩 الرسائل")
+        with st.form("camp"):
+            name = st.text_input("اسم العرض")
+            desc = st.text_area("نص الرسالة")
+            if st.form_submit_button("حفظ"):
+                supabase.table("campaigns").update({"is_active": False}).eq("is_active", True).execute()
+                supabase.table("campaigns").insert({"campaign_name": name, "product_description": desc, "is_active": True}).execute()
+                st.success("تم")
+
+    # 5. الأدمن
+    elif menu == "إدارة المستخدمين" and role == 'admin':
+        st.header("👮‍♂️ المستخدمين")
+        with st.form("new_user"):
+            u = st.text_input("User")
+            p = st.text_input("Pass")
+            if st.form_submit_button("Add Client"):
+                supabase.table("users").insert({"username": u, "password": p, "role": "client"}).execute()
+                st.success("Added")
+
+if st.session_state['logged_in']: main_app()
+else: login_screen()
