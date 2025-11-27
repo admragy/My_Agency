@@ -11,16 +11,15 @@ from langchain_groq import ChatGroq
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-# مفاتيح البحث
 SERPER_KEYS_RAW = os.environ.get("SERPER_KEYS") or os.environ.get("SERPER_API_KEY") or ""
 SERPER_KEYS = [k.strip().replace('"', '') for k in SERPER_KEYS_RAW.split(',') if k.strip()]
 
-print(f"--- Hunter V19 (Final Master) --- Keys: {len(SERPER_KEYS)}")
+print(f"--- Hunter V21 (Multi-User Core) --- Keys: {len(SERPER_KEYS)}")
 
 try:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     llm = ChatGroq(model="llama3-70b-8192", temperature=0.3, api_key=GROQ_API_KEY)
-    print("✅ Connected!")
+    print("✅ System Connected!")
 except:
     supabase = None
     llm = None
@@ -31,13 +30,13 @@ class HuntRequest(BaseModel):
     intent_sentence: str
     city: str
     time_filter: str = "qdr:m"
-    user_id: str = "admin" # لتسجيل الداتا باسم العميل
+    user_id: str = "admin" # (مهم) مين صاحب الطلب؟
 
 class ChatRequest(BaseModel):
     phone_number: str
     message: str
 
-# --- الأدوات ---
+# --- دوال المساعدة ---
 key_index = 0
 def get_active_key():
     global key_index
@@ -57,7 +56,7 @@ def get_sub_locations(city):
 
 def judge_lead(text):
     text = text.lower()
-    if any(x in text for x in ["مطلوب", "شراء", "كاش", "buy", "urgent", "عايز", "محتاج"]): return "Excellent 🔥"
+    if any(x in text for x in ["مطلوب", "شراء", "كاش", "buy", "urgent", "محتاج"]): return "Excellent 🔥"
     if any(x in text for x in ["سعر", "تفاصيل", "price", "details"]): return "Very Good ⭐"
     if any(x in text for x in ["للبيع", "sale", "offer"]): return "Competitor ❌"
     return "Good ✅"
@@ -68,14 +67,15 @@ def save_lead(phone, email, keyword, link, quality, user_id):
         "status": "NEW",
         "notes": f"Link: {link}",
         "quality": quality,
-        "user_id": user_id
+        "user_id": user_id # تسجيل الملكية
     }
+    
     if phone:
         data["phone_number"] = phone
         if email: data["email"] = email
         try:
             supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-            print(f"   ✅ SAVED: {phone}")
+            print(f"   ✅ SAVED for {user_id}: {phone}")
         except: pass
     elif email:
         data["phone_number"] = f"email_{email}"
@@ -83,15 +83,15 @@ def save_lead(phone, email, keyword, link, quality, user_id):
         data["status"] = "EMAIL_ONLY"
         try:
             supabase.table("leads").upsert(data, on_conflict="phone_number").execute()
-            print(f"   📧 SAVED EMAIL: {email}")
+            print(f"   📧 SAVED EMAIL for {user_id}: {email}")
         except: pass
 
-# --- المحرك ---
+# --- المحرك الرئيسي ---
 def run_hydra_process(intent: str, main_city: str, time_filter: str, user_id: str):
     if not SERPER_KEYS: return
     
     sub_cities = get_sub_locations(main_city)
-    print(f"🌍 Targeting: {sub_cities} for User: {user_id}")
+    print(f"🌍 Hunting for {user_id} in {sub_cities}")
     
     for area in sub_cities:
         queries = [
@@ -131,7 +131,7 @@ def run_hydra_process(intent: str, main_city: str, time_filter: str, user_id: st
 
 # --- Endpoints ---
 @app.get("/")
-def home(): return {"status": "Brain V19 Online"}
+def home(): return {"status": "Brain V21 Ready"}
 
 @app.post("/start_hunt")
 async def start_hunt(req: HuntRequest, background_tasks: BackgroundTasks):
@@ -143,5 +143,4 @@ async def analyze_intent(req: ChatRequest): return {"action": "PROCEED", "intent
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    # كود الرد البسيط
-    return {"response": "أهلاً بك"}
+    return {"response": "أهلاً"}
